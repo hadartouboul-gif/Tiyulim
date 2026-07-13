@@ -1,2 +1,0 @@
-# Tiyulim
-Travel Planner App
