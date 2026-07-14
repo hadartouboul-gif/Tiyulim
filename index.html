@@ -472,6 +472,15 @@ a.mini-link{
   background:linear-gradient(180deg,transparent 30%,rgba(0,0,0,.42));}
 .dc-name{font-size:21px; font-weight:800; text-shadow:0 1px 10px rgba(0,0,0,.35);}
 .dc-dates{font-size:12px; font-weight:600; opacity:.94;}
+.dc-menu{position:absolute; top:10px; inset-inline-start:10px; z-index:2;
+  width:34px; height:34px; border-radius:12px; border:1px solid rgba(255,255,255,.4);
+  background:rgba(255,255,255,.22); backdrop-filter:blur(6px); color:#fff;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; transition:transform .14s;}
+.dc-menu:active{transform:scale(.9);}
+.add-ev-row .ev-node{background:var(--card2) !important; color:var(--ink3); border:1.5px dashed var(--line);}
+.add-ev-row .ev-card{background:transparent; border:1.5px dashed var(--line); box-shadow:none;
+  color:var(--ink2); font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:8px;}
+.add-ev-row .ev-card:active{transform:scale(.985); background:var(--card2);}
 
 /* journal */
 .journal-card{margin:0 0 16px;}
@@ -1318,7 +1327,11 @@ function screenItinerary(){
     const outRows=stays.filter(b=>hotelDayMode(b,day.date)==='out').map(b=>hotelStayRow(b,'out'));
     const inRows=stays.filter(b=>['in','inout'].includes(hotelDayMode(b,day.date))).map(b=>hotelStayRow(b,hotelDayMode(b,day.date)));
     const midRows=stays.filter(b=>hotelDayMode(b,day.date)==='stay').map(b=>hotelStayRow(b,'stay'));
-    html+=`<div class="timeline" id="evList">${outRows.join('')+rows.join('')+midRows.join('')+inRows.join('')}</div>`;
+    html+=`<div class="timeline" id="evList">${outRows.join('')+rows.join('')+midRows.join('')+inRows.join('')}
+      <div class="ev add-ev-row">
+        <div class="ev-node">${ic('plus',18)}</div>
+        <div class="ev-card" onclick="openEventForm()">${ic('plus',15)} הוספת אירוע ליום הזה</div>
+      </div></div>`;
   }
   return html;
 }
@@ -1405,9 +1418,19 @@ function openDestManager(){
 function openDestForm(id){
   const t=activeTrip(); if(!t) return;
   const d=id? t.destinations.find(x=>x.id===id):null;
-  const last=t.destinations[t.destinations.length-1];
-  const defStart=d?d.startDate:(last?last.endDate:t.startDate);
-  const defEnd=d?d.endDate:addDays(defStart,2);
+  const place=window.__destPlace||null; window.__destPlace=null;
+  window.__destPending=(!d && place)?place:null;
+  let defStart, defEnd;
+  if(d){ defStart=d.startDate; defEnd=d.endDate; }
+  else if(place){
+    const ref=t.destinations.find(x=>x.id===place.refId);
+    if(place.where==='before'){ defStart=addDays(ref.startDate,-2); defEnd=addDays(ref.startDate,-1); }
+    else{ defStart=addDays(ref.endDate,1); defEnd=addDays(ref.endDate,2); }
+  }else{
+    const last=t.destinations[t.destinations.length-1];
+    defStart=last?addDays(last.endDate,1):(t.startDate||todayStr());
+    defEnd=addDays(defStart,2);
+  }
   openSheet(d?'עריכת יעד':'יעד חדש', `
     <div class="field"><label>שם היעד</label>
       <input class="inp" id="df-name" placeholder="טוקיו, קיוטו, אוסקה…" value="${d?esc(d.name):''}"></div>
@@ -1431,18 +1454,60 @@ function saveDestForm(id){
     syncDestDays(d);
   }else{
     const d={id:uid(),name,startDate:start,endDate:end,notes:document.getElementById('df-notes').value,days:[]};
-    syncDestDays(d); t.destinations.push(d); UI.destId=d.id; UI.dayId=null;
+    syncDestDays(d);
+    const place=window.__destPending; window.__destPending=null;
+    let idx=t.destinations.length;
+    if(place){
+      const ri=t.destinations.findIndex(x=>x.id===place.refId);
+      if(ri>=0) idx=place.where==='before'?ri:ri+1;
+    }
+    t.destinations.splice(idx,0,d);
+    UI.destId=d.id; UI.dayId=null;
   }
   save('נשמר'); closeSheet(); render();
 }
 async function deleteDest(id){
   closeSheet();
-  const ok=await confirmDialog('היעד וכל האירועים שבו יימחקו.',true);
+  const ok=await confirmDialog('היעד וכל הימים והאירועים שבו יימחקו.',true);
   if(!ok) return;
   const t=activeTrip();
-  t.destinations=t.destinations.filter(d=>d.id!==id);
-  if(UI.destId===id){UI.destId=null;UI.dayId=null;}
+  const i=t.destinations.findIndex(d=>d.id===id);
+  if(i<0) return;
+  const prev=t.destinations[i-1]||null, next=t.destinations[i+1]||null;
+  const removed=t.destinations[i];
+  const wasFlush=prev && next &&
+    addDays(prev.endDate,1)===removed.startDate &&
+    addDays(removed.endDate,1)===next.startDate;
+  t.destinations.splice(i,1);
+  if(UI.destId===id){
+    UI.destId=(prev||next)?(prev||next).id:null;
+    UI.dayId=null;
+  }
+  if(wasFlush){
+    const delta=diffDays(prev.endDate, next.startDate)-1;
+    if(delta>0){
+      const close=await confirmDialog('נוצר חור של '+delta+' ימים בתאריכים. להקדים את היעדים הבאים כדי לסגור אותו? (האירועים זזים יחד עם הימים)');
+      if(close){
+        for(let k=i;k<t.destinations.length;k++) shiftDestDays(t.destinations[k], -delta);
+      }
+    }
+  }
   save('היעד נמחק'); render();
+}
+
+function openDestMenu(id){
+  const t=activeTrip(); if(!t) return;
+  const d=t.destinations.find(x=>x.id===id); if(!d) return;
+  openSheet(esc(d.name)||'יעד', `
+    <button class="menu-item" onclick="closeSheet(); openDestForm('${id}')">${ic('pen',19)} עריכת היעד</button>
+    <button class="menu-item" onclick="closeSheet(); addDestRelative('${id}','before')">${ic('chevR',19)} הוספת יעד לפני</button>
+    <button class="menu-item" onclick="closeSheet(); addDestRelative('${id}','after')">${ic('chevL',19)} הוספת יעד אחרי</button>
+    <hr class="hr">
+    <button class="menu-item danger" onclick="deleteDest('${id}')">${ic('trash',19)} מחיקת היעד</button>`);
+}
+function addDestRelative(refId, where){
+  window.__destPlace={refId, where};
+  openDestForm(null);
 }
 
 /* ---- events ---- */
@@ -1488,7 +1553,12 @@ function openEventForm(id, preset){
     </div>
     <div class="field"><label>הערות אישיות</label>
       <textarea class="inp" id="ef-notes" placeholder="מה להזמין, טיפים, מה לזכור…">${e?esc(e.notes||''):''}</textarea></div>
-    <button class="btn btn-primary btn-block" onclick="saveEventForm('${id||''}')">${e?'שמירת שינויים':'הוספה ליום'}</button>
+    ${e?`<button class="btn btn-primary btn-block" onclick="saveEventForm('${id}')">שמירת שינויים</button>`
+       :`<div class="row2">
+          <button class="btn btn-ghost" onclick="saveEventForm('')">${ic('check',16)} הוספה וסגירה</button>
+          <button class="btn btn-primary" onclick="saveEventForm('',true)">${ic('plus',16)} הוספה + עוד</button>
+        </div>
+        <p class="mini-note" style="text-align:center">"הוספה + עוד" שומר ומשאיר את העורך פתוח לאירוע הבא</p>`}
   `);
 }
 function pickEvType(t){
@@ -1500,7 +1570,7 @@ function pickEvType(t){
   document.querySelectorAll('#typeGrid .type-cell').forEach(c=>c.classList.toggle('sel',c.dataset.t===t));
   haptic();
 }
-function saveEventForm(id){
+function saveEventForm(id, again){
   const day=currentDay(); if(!day) return;
   const g=x=>document.getElementById(x).value;
   const title=g('ef-title').trim();
@@ -1513,10 +1583,20 @@ function saveEventForm(id){
     notes:g('ef-notes') };
   if(id){
     Object.assign(day.events.find(x=>x.id===id), data);
-  }else{
-    day.events.push(Object.assign({id:uid(), status:'upcoming', favorite:false}, data));
+    save('נשמר'); closeSheet(); render();
+    return;
   }
-  save('נשמר'); closeSheet(); render();
+  day.events.push(Object.assign({id:uid(), status:'upcoming', favorite:false}, data));
+  if(again){
+    const keepType=window.__evType;
+    save('"'+title+'" נוסף ✓');
+    render();
+    openEventForm(null, keepType);
+    const ti=document.getElementById('ef-title');
+    if(ti) ti.focus();
+  }else{
+    save('נשמר'); closeSheet(); render();
+  }
 }
 function openEventDetail(id){
   const day=currentDay(); if(!day) return;
@@ -1870,7 +1950,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.4 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2113,7 +2193,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 2.3</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 2.4</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -2346,6 +2426,12 @@ function hotelDayMode(b,date){
   if(date===b.checkOut) return 'out';
   return 'stay';
 }
+function shiftDestDays(dest, delta){
+  if(!delta) return;
+  dest.startDate=addDays(dest.startDate, delta);
+  dest.endDate=addDays(dest.endDate, delta);
+  (dest.days||[]).forEach(day=>{ day.date=addDays(day.date, delta); });
+}
 /* ==== END SERVICES ==== */
 
 /* ---- data shape migration (non-destructive) ---- */
@@ -2411,7 +2497,9 @@ function destCover(dest){
     <polygon points="240,120 330,64 400,102 400,120" fill="${p.m[0]}" opacity=".7"/>
     <polygon points="0,120 60,92 140,112 230,88 320,110 400,94 400,120" fill="${p.m[2]}"/>
   </svg>`;
-  return `<div class="dest-cover">${svg}<div class="dc-in">
+  return `<div class="dest-cover">${svg}
+    <button class="dc-menu" onclick="openDestMenu('${dest.id}')" aria-label="אפשרויות יעד">${ic('dots',19)}</button>
+    <div class="dc-in">
     <div class="dc-name">${esc(dest.name)||'יעד'}</div>
     <div class="dc-dates">${fmtD(dest.startDate)} – ${fmtD(dest.endDate)} · ${dest.days.length} ימים</div>
   </div></div>`;
@@ -3752,7 +3840,7 @@ async function deleteHotelBooking(id){
   t.hotels=(t.hotels||[]).filter(b=>b.id!==id);
   save('הזמנת המלון נמחקה'); render();
 }
-Object.assign(window,{openHotelForm, saveHotelBooking, openHotelDetail, deleteHotelBooking, recalcHotelNights});
+Object.assign(window,{openHotelForm, saveHotelBooking, openHotelDetail, deleteHotelBooking, recalcHotelNights, openDestMenu, addDestRelative});
 </script>
 <script>
 /* PWA: service worker registration only (installation UI removed) */
