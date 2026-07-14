@@ -248,8 +248,9 @@ html[dir=rtl] .fab{inset-inline-start:auto; inset-inline-end:20px; transform:non
   display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:12px 0 16px;
 }
 .summary>*{min-width:0;}
+.summary.cols-3{grid-template-columns:repeat(3,minmax(0,1fr));}
 .sum-num{font-size:clamp(12.5px,4vw,16px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-@media (max-width:340px){ .summary{grid-template-columns:repeat(2,minmax(0,1fr));} }
+@media (max-width:340px){ .summary, .summary.cols-3{grid-template-columns:repeat(2,minmax(0,1fr));} }
 .sum-cell{
   background:var(--card); border:1px solid var(--line); border-radius:14px;
   padding:10px 6px; text-align:center;
@@ -1343,14 +1344,14 @@ function daySummary(day){
   const act=evs.reduce((s,e)=>s+(+e.actualCost||0),0);
   const walk=evs.filter(e=>e.type==='walk').reduce((s,e)=>s+(+e.duration||0),0);
   const trans=evs.filter(e=>['flight','train','metro','bus','taxi','car','bike'].includes(e.type)).length;
-  const busy=evs.reduce((s,e)=>s+(+e.duration||0),0);
-  const free=Math.max(0, 14*60-busy);
-  return `<div class="summary">
-    <div class="sum-cell"><div class="sum-num">${evs.length}</div><div class="sum-lbl">פעילויות</div></div>
-    <div class="sum-cell"><div class="sum-num">${trans}</div><div class="sum-lbl">תחבורה</div></div>
-    <div class="sum-cell"><div class="sum-num">${act?money(act):money(est)}</div><div class="sum-lbl">${act?'הוצא':'צפוי'}</div></div>
-    <div class="sum-cell"><div class="sum-num">${walk?fmtMin(walk):fmtMin(free)}</div><div class="sum-lbl">${walk?'הליכה':'זמן פנוי'}</div></div>
-  </div>`;
+  const cells=[
+    {n:evs.length, l:'פעילויות'},
+    {n:trans, l:'תחבורה'},
+    {n:act?money(act):money(est), l:act?'הוצא':'צפוי'}
+  ];
+  if(walk>0) cells.push({n:fmtMin(walk), l:'הליכה'});
+  return `<div class="summary ${cells.length===3?'cols-3':''}">${cells.map(c=>`
+    <div class="sum-cell"><div class="sum-num">${c.n}</div><div class="sum-lbl">${c.l}</div></div>`).join('')}</div>`;
 }
 function eventRow(e,i){
   const t=evType(e.type);
@@ -1858,7 +1859,6 @@ function screenMore(){
     {act:"navSub('wishlist','more')", icon:'star',   color:'#E0A417', title:'רשימת משאלות', sub:t&&t.wishlist&&t.wishlist.length? t.wishlist.length+' מקומות שמורים':'מקומות לביקור בהמשך'},
     {act:"navSub('reminders','more')",icon:'bell',   color:'#E8590C', title:'תזכורות חכמות', sub:'נגזרות אוטומטית מהמסלול'},
     {act:"navSub('assistant','more')",icon:'spark',  color:'#6741D9', title:'עוזר הטיול', sub:'תובנות והתנגשויות בלו״ז'},
-    {act:"openInstallGuide()", icon:'download', color:'#0E9BB5', title:'התקנה בטלפון כאפליקציה', sub:'הוספה למסך הבית — iPhone ו-Android'},
     {act:"openShareHub()", icon:'share', color:'#3E63DD', title:'שיתוף והצטרפות', sub:'טיול משותף בקוד, ייבוא, ואפליקציה נקייה'},
     {v:'packing', icon:'bag', color:'#12946A', title:'רשימות אריזה', sub:t?packSub(t):'צ׳ק־ליסט לפני היציאה'},
     {v:'stats',   icon:'chart', color:'#3E63DD', title:'סטטיסטיקות', sub:'מבט־על על הטיול'},
@@ -1870,7 +1870,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.2 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2094,22 +2094,27 @@ function screenSettings(){
           <button class="btn btn-primary btn-sm" onclick="openAuthSheet()">התחברות</button>
         </div>`}
   </div>
-  <div class="section-label">סנכרון ענן</div>
-  <div class="card pad">
-    ${(()=>{ const c=sbConf();
-      if(c) return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="status-pill st-done">מחובר</span><span style="font-size:12.5px;color:var(--ink2);direction:ltr">${esc(c.url.replace('https://',''))}</span></div>`;
-      if(ArtifactTransport.available()) return `<div style="margin-bottom:12px"><span class="status-pill st-upcoming">זמין: אחסון Claude</span><span style="font-size:12px;color:var(--ink2)"> · עובד רק בתוך הארטיפקט. ל-2 טלפונים — חבר Supabase:</span></div>`;
-      return `<div style="margin-bottom:12px"><span class="status-pill st-cancelled">לא מוגדר</span><span style="font-size:12px;color:var(--ink2)"> · שיתוף טיולים בזמן אמת דורש Supabase (חינם)</span></div>`;
+  <div class="section-label">סנכרון</div>
+  <div class="card pad" style="display:flex;align-items:center;gap:10px">
+    ${(()=>{
+      if(typeof Auth==='undefined'||!Auth.session)
+        return `<span class="status-pill st-cancelled">לא מחובר</span><span style="font-size:12px;color:var(--ink2);flex:1">התחבר לחשבון כדי לסנכרן בין מכשירים</span>`;
+      const sts=Object.values(CloudSync.status||{});
+      let s='synced';
+      if(sts.some(x=>x&&x.state==='error')) s='error';
+      else if(sts.some(x=>x&&x.state==='offline')) s='offline';
+      else if(sts.some(x=>x&&x.state==='syncing')) s='syncing';
+      const map={synced:['st-done',CloudSync.realtimeOn?'מסונכרן · ⚡ חי':'מסונכרן'],
+                 syncing:['st-upcoming','מסנכרן…'],
+                 offline:['st-cancelled','לא מקוון — יסתנכרן כשיחזור חיבור'],
+                 error:['st-cancelled','שגיאת סנכרון']};
+      return `<span class="status-pill ${map[s][0]}">${map[s][1]}</span><span style="font-size:12px;color:var(--ink2);flex:1">${CloudSync.cloudTrips().length} טיולים בענן</span>`;
     })()}
-    <div class="field"><label>Supabase URL</label>
-      <input class="inp" id="sb-url" placeholder="https://xxxx.supabase.co" style="direction:ltr" value="${esc((S.settings.sb&&S.settings.sb.url)||'')}"></div>
-    <div class="field"><label>Anon Key</label>
-      <input class="inp" id="sb-key" placeholder="eyJhbGci..." style="direction:ltr" value="${esc((S.settings.sb&&S.settings.sb.key)||'')}"></div>
-    <div class="row2">
-      <button class="btn btn-ghost" onclick="testSyncConfig(this)">${ic('refresh',16)} בדיקת חיבור</button>
-      <button class="btn btn-primary" onclick="saveSyncConfig()">${ic('check',16)} שמירה</button>
-    </div>
-    <button class="btn btn-soft btn-block btn-sm" style="margin-top:10px" onclick="openSyncSetup()">${ic('file',15)} הוראות התקנה (5 דקות, חינם)</button>
+  </div>
+  <div class="section-label">אודות ופרטיות</div>
+  <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
+    <b style="color:var(--ink)">טיולים · גרסה 2.3</b><br>
+    הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
   <div class="card" style="padding:4px 14px">
@@ -2523,7 +2528,6 @@ function journalGo(destId,dayId){ UI.destId=destId; UI.dayId=dayId; UI.jOpen.add
 <script>
 /* ---- quick add menu (FAB) ---- */
 const QITEMS=[
-  {k:'imgimport',  label:'ייבוא מתמונה', icon:'camera', color:'#C0399F'},
   {k:'dest',       label:'יעד חדש',   icon:'pin',       color:'#0E9BB5'},
   {k:'pack',       label:'פריט אריזה',icon:'bag',       color:'#12946A'},
   {k:'expense',    label:'הוצאה',     icon:'money',     color:'#E0A417'},
@@ -2574,7 +2578,6 @@ function qAct(k){
     openPackItemForm();
   }
   else if(k==='dest'){ if(!t) return needTrip(); openDestForm(); }
-  else if(k==='imgimport') openImageImport();
 }
 
 /* ---- HOME DASHBOARD / TODAY ---- */
@@ -3467,11 +3470,10 @@ function openShareSheet(tripId){
     body+=`<div class="card pad" style="background:var(--amber-soft);border-color:transparent;margin-bottom:12px">
       <b style="font-size:13.5px;color:var(--amber)">${ic('alert',15)} סנכרון ענן לא מוגדר</b>
       <p style="margin:5px 0 10px;font-size:12.5px;color:var(--ink2)">כדי ששני טלפונים יערכו את אותו טיול בזמן אמת, צריך לחבר Supabase (חינם, ~5 דקות). בלי זה — אין סנכרון אמיתי, ולא נעמיד פנים שיש.</p>
-      <button class="btn btn-soft btn-sm" onclick="closeSheet(); openSyncSetup()">${ic('sliders',15)} הוראות והגדרה</button>
     </div>`;
     body+= shareOpt('link','#7A8699','שיתוף כקובץ (ללא סנכרון)','הצד השני מייבא קובץ ומקבל עותק חד-פעמי',`exportTripFile('${t.id}')`);
   }
-  body+=shareOpt('share','#12946A','שיתוף האפליקציה בלבד','הצד השני מקבל את האפליקציה נקייה לגמרי — בלי טיולים, מסמכים או כל מידע אישי','shareAppInfo()');
+  body+=shareOpt('share','#12946A','שיתוף האפליקציה','שליחת קישור לאפליקציה עצמה — בלי שום נתונים שלך. כל אחד נכנס לחשבון משלו','shareAppLink()');
   openSheet('שיתוף · '+esc(t.name||'טיול'), body);
 }
 async function shareTripStart(tripId){
@@ -3518,7 +3520,7 @@ function openShareHub(){
   const live=ShareSync.available();
   openSheet('שיתוף והצטרפות', `
     ${live?`
-    <div class="field"><label>הצטרפות לטיול משותף בקוד <span class="demo-tag" style="background:var(--accent-soft);color:var(--accent-ink)">${ShareSync.transportLabel()}</span></label>
+    <div class="field"><label>הצטרפות לטיול בקוד הזמנה <span class="demo-tag" style="background:var(--accent-soft);color:var(--accent-ink)">☁ ענן</span></label>
       <div style="display:flex;gap:8px">
         <input class="inp" id="join-code" maxlength="8" placeholder="ABC12345"
           style="text-transform:uppercase;font-family:ui-monospace,monospace;font-weight:800;letter-spacing:3px;text-align:center;direction:ltr"
@@ -3529,42 +3531,38 @@ function openShareHub(){
     <div class="card pad" style="background:var(--amber-soft);border-color:transparent;margin-bottom:14px">
       <b style="font-size:13px;color:var(--amber)">${ic('alert',14)} סנכרון ענן לא מוגדר</b>
       <p style="margin:4px 0 8px;font-size:12px;color:var(--ink2)">חבר Supabase כדי לערוך טיול משותף משני טלפונים.</p>
-      <button class="btn btn-soft btn-sm" onclick="closeSheet(); openSyncSetup()">הגדרה והוראות</button>
     </div>`}
     <div class="field"><label>ייבוא טיול מקובץ</label>
       <input class="inp" type="file" accept=".json,application/json" onchange="importTripFile(this)"></div>
     <hr class="hr">
-    ${shareOpt('camera','#C0399F','ייבוא מתמונה','צילום מסך או סריקה של תוכנית טיול (עברית/אנגלית) — Claude מפענח ובונה טיול שלם','openImageImport()')}
-    <hr class="hr">
-    ${shareOpt('share','#12946A','שיתוף האפליקציה בלבד','עותק נקי של האפליקציה, בלי שום מידע אישי','shareAppInfo()')}
+    ${shareOpt('share','#12946A','שיתוף האפליקציה','שליחת הקישור לאפליקציה — כל אחד עם חשבון משלו, בלי הנתונים שלך','shareAppLink()')}
   `);
 }
 async function joinByCode(){
   const inp=document.getElementById('join-code');
   const code=(inp.value||'').trim().toUpperCase();
   if(!/^[A-Z0-9]{6,8}$/.test(code)){ toast('קוד בן 6–8 תווים'); return; }
-  toast('מתחבר…');
-  const T=syncTransport();
-  if(!T){ toast('סנכרון ענן לא מוגדר'); return; }
-  let str=null;
-  try{ str=await T.get(code); }
-  catch(e){ toast(ShareSync.isOffline(e)?'אין חיבור לרשת':'שגיאת חיבור לענן'); return; }
-  if(!str){ toast('לא נמצא טיול עם הקוד הזה'); return; }
-  try{
-    const p=JSON.parse(str);
-    const existing=tripById(p.trip.id);
-    const role=existing&&existing.share?existing.share.role:'guest';
-    const adopted=adoptSharedTrip(p, code, role, existing&&existing.share?existing.share.pushedKeys:[]);
-    ensureShapes();
-    ShareSync.lastHash[code]=shareFingerprint(adopted);
-    ShareSync.setStatus(code,'synced');
-    await fetchMissingBlobs(code, p.blobKeys);
-    S.activeTripId=adopted.id;
-    save('הצטרפת לטיול המשותף ✓');
-    ShareSync.start();
-    closeSheet();
-    navSub('home','trips');
-  }catch(e){ console.error(e); toast('ההצטרפות נכשלה'); }
+  if(typeof Auth==='undefined' || !Auth.session){
+    closeSheet(); toast('קודם מתחברים לחשבון'); openAuthSheet(); return;
+  }
+  toast('בודק את הקוד…');
+  let r;
+  try{ r=await CloudAPI.redeemCode(code); }
+  catch(e){
+    if(/redeem_trip_code/i.test(e.message||'')) toast('חסר עדכון בשרת — הרץ את ה-SQL של קודי ההזמנה');
+    else toast(CloudSync.isOffline(e)?'אין חיבור לרשת':'ההצטרפות נכשלה: '+e.message);
+    return;
+  }
+  const st=r && r.status;
+  if(st==='invalid'){ toast('קוד לא קיים — בדוק את התווים'); return; }
+  if(st==='expired'){ toast('תוקף הקוד פג — בקש מבעל הטיול קוד חדש'); return; }
+  if(st==='revoked'){ toast('הקוד בוטל על ידי בעל הטיול'); return; }
+  if(st==='owner'){ closeSheet(); toast('זה טיול שבבעלותך 🙂'); return; }
+  closeSheet();
+  toast(st==='already'?'אתה כבר בטיול הזה — טוען…':'הצטרפת לטיול ✓ טוען…');
+  await CloudSync.tick();
+  const t=S.trips.find(x=>x.cloud && x.cloud.id===r.trip_id);
+  if(t){ S.activeTripId=t.id; save(); navSub('home','trips'); }
 }
 function exportTripFile(tripId){
   const t=tripById(tripId); if(!t) return;
@@ -3599,403 +3597,46 @@ function importTripFile(input){
   };
   r.readAsText(f);
 }
-function shareAppInfo(){
-  const live=ShareSync.available();
-  openSheet('שיתוף האפליקציה בלבד', `
-    <div class="card pad" style="background:var(--green-soft);border-color:transparent">
-      <b style="font-size:14px;color:var(--green)">${ic('check',15)} בלי שום מידע אישי</b>
-      <p style="margin:5px 0 0;font-size:12.5px;color:var(--ink2)">הנתונים שלך שמורים באחסון, לא בתוך האפליקציה עצמה. מי שמקבל אותה מתחיל מאפס — בלי טיולים, מסמכים, תקציב או רשימות — בדיוק כמו התקנה ראשונה.</p>
-    </div>
-    ${live?`<p style="font-size:13.5px;line-height:1.6;margin:14px 2px">הדרך הפשוטה: השתמש בכפתור השיתוף/פרסום של Claude (מעל התצוגה) ושלח את הקישור — כל מי שפותח אותו מקבל את האפליקציה עם אחסון משלו.</p>`:''}
-    <button class="btn btn-primary btn-block" style="margin-top:${live?'4px':'14px'}" onclick="shareAppDownload()">${ic('download',17)} הורדת עותק נקי (קובץ HTML)</button>
-    <p class="mini-note">הקובץ מכיל את כל המסכים והפיצ׳רים — ואפס נתונים אישיים.</p>`);
+function appPublicUrl(){
+  if(/^https?:$/.test(location.protocol)) return location.origin+location.pathname;
+  return '';
 }
-function shareAppDownload(){
-  try{
-    const root=document.documentElement.cloneNode(true);
-    const q=s=>root.querySelector(s);
-    if(q('#screen')) q('#screen').innerHTML='';
-    ['#qmenu','#qmenuB'].forEach(s=>{ const n=q(s); if(n) n.remove(); });
-    const sh=q('#sheet'); if(sh){ sh.innerHTML=''; sh.className='sheet'; sh.setAttribute('style','display:none'); }
-    const bd=q('#sheetBackdrop'); if(bd){ bd.className='sheet-backdrop'; bd.setAttribute('style','display:none'); }
-    const tt=q('#toast'); if(tt){ tt.textContent=''; tt.className='toast'; }
-    const fb=q('#fab'); if(fb){ fb.className='fab'; fb.innerHTML=''; }
-    if(q('#nav')) q('#nav').innerHTML='';
-    root.setAttribute('data-theme','light');
-    const out='<!DOCTYPE html>\n'+root.outerHTML;
-    const blob=new Blob([out],{type:'text/html'});
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download='tiyulim-app.html';
-    a.click();
-    toast('עותק נקי של האפליקציה ירד ✓');
-  }catch(e){ console.error(e); toast('היצירה נכשלה'); }
-}
-
-/* ---- cloud sync settings ---- */
-const SETUP_SQL=`-- טיולים · סכמת ענן v3 (בטוח להריץ שוב)
-create extension if not exists pgcrypto;
-
-create table if not exists trips (
-  id uuid primary key default gen_random_uuid(),
-  owner uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  rev bigint not null default 1,
-  payload jsonb not null,
-  updated_by uuid,
-  updated_at timestamptz not null default now()
-);
-create table if not exists trip_members (
-  trip_id uuid not null references trips(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  email text,
-  role text not null default 'edit' check (role in ('edit','view')),
-  primary key (trip_id, user_id)
-);
-create table if not exists trip_invites (
-  trip_id uuid not null references trips(id) on delete cascade,
-  email text not null,
-  role text not null default 'edit' check (role in ('edit','view')),
-  invited_by uuid default auth.uid(),
-  primary key (trip_id, email)
-);
-create table if not exists blobs (
-  key text primary key,
-  owner uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  trip_id uuid references trips(id) on delete cascade,
-  value text not null,
-  updated_at timestamptz default now()
-);
-create table if not exists user_state (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  payload jsonb not null,
-  updated_at timestamptz default now()
-);
-
-alter table trips enable row level security;
-alter table trip_members enable row level security;
-alter table trip_invites enable row level security;
-alter table blobs enable row level security;
-alter table user_state enable row level security;
-
-drop policy if exists trips_select on trips;
-create policy trips_select on trips for select using (
-  owner = auth.uid() or exists (select 1 from trip_members m where m.trip_id = id and m.user_id = auth.uid()));
-drop policy if exists trips_insert on trips;
-create policy trips_insert on trips for insert with check (owner = auth.uid());
-drop policy if exists trips_update on trips;
-create policy trips_update on trips for update using (
-  owner = auth.uid() or exists (select 1 from trip_members m where m.trip_id = id and m.user_id = auth.uid() and m.role = 'edit'));
-drop policy if exists trips_delete on trips;
-create policy trips_delete on trips for delete using (owner = auth.uid());
-
-drop policy if exists members_select on trip_members;
-create policy members_select on trip_members for select using (
-  user_id = auth.uid() or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
-drop policy if exists members_insert on trip_members;
-create policy members_insert on trip_members for insert with check (
-  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid())
-  or (user_id = auth.uid() and exists (
-      select 1 from trip_invites i where i.trip_id = trip_id and lower(i.email) = lower(auth.email()))));
-drop policy if exists members_update on trip_members;
-create policy members_update on trip_members for update using (
-  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
-drop policy if exists members_delete on trip_members;
-create policy members_delete on trip_members for delete using (
-  user_id = auth.uid() or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
-
-drop policy if exists invites_select on trip_invites;
-create policy invites_select on trip_invites for select using (
-  lower(email) = lower(auth.email()) or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
-drop policy if exists invites_insert on trip_invites;
-create policy invites_insert on trip_invites for insert with check (
-  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
-drop policy if exists invites_delete on trip_invites;
-create policy invites_delete on trip_invites for delete using (
-  lower(email) = lower(auth.email()) or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
-
-drop policy if exists blobs_select on blobs;
-create policy blobs_select on blobs for select using (
-  owner = auth.uid() or (trip_id is not null and exists (
-    select 1 from trips t where t.id = trip_id and (t.owner = auth.uid()
-      or exists (select 1 from trip_members m where m.trip_id = t.id and m.user_id = auth.uid())))));
-drop policy if exists blobs_insert on blobs;
-create policy blobs_insert on blobs for insert with check (
-  owner = auth.uid() or (trip_id is not null and exists (
-    select 1 from trips t where t.id = trip_id and (t.owner = auth.uid()
-      or exists (select 1 from trip_members m where m.trip_id = t.id and m.user_id = auth.uid() and m.role = 'edit')))));
-drop policy if exists blobs_update on blobs;
-create policy blobs_update on blobs for update using (owner = auth.uid());
-drop policy if exists blobs_delete on blobs;
-create policy blobs_delete on blobs for delete using (owner = auth.uid());
-
-drop policy if exists state_all on user_state;
-create policy state_all on user_state for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-
-do $$ begin
-  alter publication supabase_realtime add table trips;
-exception when duplicate_object then null; end $$;
-do $$ begin
-  alter publication supabase_realtime add table trip_members;
-exception when duplicate_object then null; end $$;`;
-function saveSyncConfig(){
-  const url=document.getElementById('sb-url').value.trim().replace(/\/+$/,'');
-  const key=document.getElementById('sb-key').value.trim();
-  S.settings.sb={url,key};
-  save(url&&key?'סנכרון ענן הוגדר ✓':'ההגדרות נשמרו');
-  if(sbConf() && ShareSync.sharedTrips().length) ShareSync.start();
-  render();
-}
-async function testSyncConfig(btn){
-  const url=document.getElementById('sb-url').value.trim().replace(/\/+$/,'');
-  const key=document.getElementById('sb-key').value.trim();
-  if(!url||!key){ toast('מלא URL ומפתח'); return; }
-  const prev=S.settings.sb; S.settings.sb={url,key};
-  if(btn){ btn.disabled=true; }
-  try{
-    await CloudAPI.req('GET','trips?select=id&limit=1');
-    toast('החיבור תקין ✓ (הטבלאות קיימות)');
-  }catch(e){
-    if(/404/.test(String(e.message))) toast('מחובר לפרויקט, אך הטבלאות חסרות — הרץ את ה-SQL מההוראות');
-    else if(/401|403/.test(String(e.message))) toast('מפתח לא תקין');
-    else toast(ShareSync.isOffline(e)?'אין חיבור לרשת':'החיבור נכשל: '+e.message);
-  }finally{
-    S.settings.sb=prev;
-    if(btn){ btn.disabled=false; }
+async function shareAppLink(){
+  const url=appPublicUrl();
+  if(!url){
+    openSheet('שיתוף האפליקציה', `
+      <div class="card pad" style="background:var(--amber-soft);border-color:transparent">
+        <b style="font-size:13.5px;color:var(--amber)">${ic('alert',15)} אין כאן קישור ציבורי</b>
+        <p style="margin:5px 0 0;font-size:12.5px;color:var(--ink2)">שיתוף האפליקציה זמין כשמריצים אותה מהכתובת המקוונת (הגרסה המותקנת בטלפון). פתח אותה משם ושתף.</p>
+      </div>`);
+    return;
   }
+  const text='טיולים — האפליקציה שאנחנו מתכננים איתה טיולים 🗺️';
+  if(navigator.share){
+    try{ await navigator.share({title:'טיולים', text, url}); return; }
+    catch(e){ if(e && e.name==='AbortError') return; }
+  }
+  openSheet('שיתוף האפליקציה', `
+    <div class="field"><label>קישור לאפליקציה</label>
+      <input class="inp" readonly value="${esc(url)}" style="direction:ltr;font-size:13px" onclick="this.select()"></div>
+    <button class="btn btn-primary btn-block" onclick="copyAppLink()">${ic('copy',16)} העתקת הקישור</button>
+    <p class="mini-note">הקישור פותח את אותה אפליקציית ענן. מי שנכנס יוצר חשבון משלו ורואה חשבון ריק — הטיולים שלך נשארים פרטיים, אלא אם הזמנת אותו לטיול ספציפי.</p>`);
 }
-function openSyncSetup(){
-  openSheet('הקמת סנכרון ענן — Supabase', `
-    <ol style="margin:0 0 14px;padding-inline-start:18px;font-size:14px;line-height:1.75">
-      <li>היכנס ל-<b>supabase.com</b> וצור פרויקט חדש (החינמי מספיק).</li>
-      <li>פתח <b>SQL Editor</b>, הדבק את הסקריפט למטה ולחץ Run.</li>
-      <li>עבור ל-<b>Settings → API</b> והעתק את ה-<b>Project URL</b> ואת ה-<b>anon public key</b>.</li>
-      <li>הפרטים של הפרויקט שלך כבר מוטמעים באפליקציה — נשאר רק להריץ את ה-SQL ולהתחבר עם אימייל.</li>
-      <li>אופציונלי לבדיקות: Authentication ← Providers ← Email ← כבה "Confirm email".</li>
-    </ol>
-    <div class="field"><label>סקריפט SQL (העתק והרץ פעם אחת)</label>
-      <textarea class="inp" readonly style="direction:ltr;font-family:ui-monospace,monospace;font-size:12px;min-height:180px">${esc(SETUP_SQL)}</textarea></div>
-    <button class="btn btn-primary btn-block" onclick="copySQLSetup()">${ic('copy',16)} העתקת ה-SQL</button>
-    <p class="mini-note">אבטחה: מפתח ה-publishable ציבורי בכוונה. הגישה נאכפת ב-Row Level Security — כל משתמש רואה רק את הטיולים שלו ואת מה ששותף איתו לפי אימייל.</p>`);
+function copyAppLink(){
+  const url=appPublicUrl();
+  const done=()=>toast('הקישור הועתק ✓');
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done).catch(()=>prompt('העתק:',url));
+  else prompt('העתק:',url);
 }
-function copySQLSetup(){
-  const done=()=>toast('ה-SQL הועתק ✓');
-  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(SETUP_SQL).then(done).catch(()=>prompt('העתק:',SETUP_SQL));
-  else prompt('העתק:',SETUP_SQL);
-}
-
 Object.assign(window,{
-  openShareSheet, shareTripStart, copyShareCode, syncNow, stopSharing, leaveShare, saveSyncConfig, testSyncConfig, openSyncSetup, copySQLSetup,
-  openShareHub, joinByCode, exportTripFile, importTripFile, shareAppInfo, shareAppDownload, ShareSync
+  openShareSheet, shareTripStart, copyShareCode, syncNow, stopSharing, leaveShare,
+  openShareHub, joinByCode, exportTripFile, importTripFile, shareAppLink, copyAppLink, ShareSync
 });
 (function(){
   const w=setInterval(()=>{ if(loaded){ clearInterval(w); if(ShareSync.sharedTrips().length) ShareSync.start(); } },400);
 })();
 </script>
-<script>
-/* ==== IMAGE IMPORT CORE ==== */
-const IMPORT_TYPES=['flight','train','metro','bus','taxi','car','bike','walk','hotel','restaurant','cafe','attraction','view','beach','photo','shopping','ticket','party','expense','note'];
-function coerceISO(d){
-  d=String(d==null?'':d).trim();
-  let m=d.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if(m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
-  m=d.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
-  if(m){
-    let y=m[3]; if(y.length===2) y='20'+y;
-    return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); /* day-first */
-  }
-  return null;
-}
-function coerceTime(t){
-  t=String(t==null?'':t).trim();
-  const m=t.match(/^(\d{1,2}):(\d{2})/);
-  if(!m) return '';
-  const h=(+m[1]); if(h>23) return '';
-  return String(h).padStart(2,'0')+':'+m[2];
-}
-function parseModelJSON(text){
-  let s=String(text||'').replace(/```json/gi,'```').split('```').join('').trim();
-  const a=s.indexOf('{'), b=s.lastIndexOf('}');
-  if(a<0||b<=a) throw new Error('לא נמצא JSON בתשובה');
-  return JSON.parse(s.slice(a,b+1));
-}
-function normalizeImportedTrip(raw){
-  const warnings=[];
-  const out={name:String(raw&&raw.name||'').trim()||'טיול מיובא',
-    country:String(raw&&raw.country||'').trim(),
-    notes:String(raw&&raw.notes||'').trim(),
-    destinations:[]};
-  (raw&&Array.isArray(raw.destinations)?raw.destinations:[]).forEach(d=>{
-    const s=coerceISO(d.startDate), e=coerceISO(d.endDate);
-    const name=String(d.name||'').trim()||'יעד';
-    if(!s||!e||s>e){ warnings.push('דילוג על יעד "'+name+'" — תאריכים לא תקינים'); return; }
-    const dest={name, startDate:s, endDate:e, notes:String(d.notes||'').trim(), days:[]};
-    (Array.isArray(d.days)?d.days:[]).forEach(day=>{
-      const dt=coerceISO(day.date);
-      if(!dt){ warnings.push('יום ללא תאריך תקין ב"'+name+'" — דולג'); return; }
-      if(dt<s||dt>e) warnings.push('היום '+dt+' מחוץ לטווח של "'+name+'" — יתווסף רק אם בטווח');
-      const events=[];
-      (Array.isArray(day.events)?day.events:[]).forEach(ev=>{
-        const title=String(ev&&ev.title||'').trim();
-        if(!title){ warnings.push('אירוע ללא כותרת ב-'+dt+' — דולג'); return; }
-        let type=String(ev.type||'').trim();
-        if(!IMPORT_TYPES.includes(type)){ if(type) warnings.push('סוג לא מוכר "'+type+'" ב-'+dt+' → הערה'); type='note'; }
-        events.push({type, title,
-          time:coerceTime(ev.time),
-          notes:String(ev.notes||'').trim(),
-          estCost:(ev.estCost!=null && !isNaN(+ev.estCost) && +ev.estCost>0)?String(+ev.estCost):'',
-          priority:(ev.priority==='high'||ev.priority==='low')?ev.priority:'',
-          bookingRef:String(ev.bookingRef||'').trim()});
-      });
-      dest.days.push({date:dt, events});
-    });
-    out.destinations.push(dest);
-  });
-  if(!out.destinations.length) warnings.push('לא זוהו יעדים עם תאריכים');
-  return {trip:out, warnings};
-}
-function importedTripStats(t){
-  let days=0, evs=0;
-  t.destinations.forEach(d=>{ days+=(diffDays(d.startDate,d.endDate)+1); d.days.forEach(x=>evs+=x.events.length); });
-  return {dests:t.destinations.length, days, evs};
-}
-/* ==== END IMAGE IMPORT CORE ==== */
 
-const ImageImportService={
-  provider:'claude',
-  buildPrompt(){
-    return 'אתה מפענח תוכניות טיול. קרא את כל הטבלה בתמונה (עברית ו/או אנגלית) והחזר JSON בלבד, ללא Markdown וללא טקסט נוסף.\\n'
-    +'Schema: {"name":str,"country":str,"notes":str,"destinations":[{"name":str,"startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","days":[{"date":"YYYY-MM-DD","events":[{"type":str,"title":str,"time":"HH:MM"?,"notes":str?,"estCost":number?,"priority":"high"|"low"?}]}]}]}\\n'
-    +'סוגי אירועים מותרים: '+IMPORT_TYPES.join(', ')+'.\\n'
-    +'חוקים מחייבים: (1) שמור על התאריכים בדיוק כפי שמופיעים — פורמט DD/MM/YYYY הוא יום-קודם-חודש. (2) אל תמציא מידע שלא כתוב. (3) טקסט לא ברור או קטוע — צור אירוע type:"note" עם הטקסט כפי שהוא וסמן [לא ברור]. (4) כל תא בטבלה (כולל עמודות הערות, "צריך לסגור מראש", שעות) חייב להגיע ליעדו: כאירוע, כ-notes של אירוע, או כאירוע note יומי. (5) שעות טווח (למשל 08:00-09:00) — קח את שעת ההתחלה ב-time וציין את הטווח ב-notes. (6) עלויות מלון לפי עיר בתחתית הטבלה — הוסף כ-estCost על אירוע ה-hotel הראשון באותה עיר. (7) קבץ ימים ליעדים לפי מקום הלינה. (8) לינה ללא שם מלון — אירוע hotel עם "לינה: <אזור>" והערה שהמלון טרם נבחר. (9) JSON תקין בלבד.';
-  },
-  async analyze(dataUrl){
-    const m=dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
-    if(!m) throw new Error('פורמט תמונה לא נתמך');
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-6',
-        max_tokens:4000,
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:m[1],data:m[2]}},
-          {type:'text',text:this.buildPrompt()}
-        ]}]
-      })
-    });
-    if(!res.ok) throw new Error('שגיאת רשת ('+res.status+')');
-    const data=await res.json();
-    if(data.error) throw new Error(data.error.message||'שגיאת API');
-    const text=(data.content||[]).map(c=>c.type==='text'?c.text:'').join('\\n');
-    return parseModelJSON(text);
-  }
-};
-let __importDraft=null;
-function openImageImport(){
-  __importDraft=null;
-  openSheet('ייבוא טיול מתמונה', `
-    <div class="card pad" style="background:var(--accent-soft);border-color:transparent;margin-bottom:14px">
-      <b style="font-size:13.5px;color:var(--accent-ink)">${ic('camera',15)} צילום מסך, תמונה או סריקה</b>
-      <p style="margin:5px 0 0;font-size:12.5px;color:var(--ink2)">Claude מפענח את הטבלה (עברית ואנגלית), בונה טיול מלא — ומציג תצוגה מקדימה לאישור לפני שנשמר משהו. הטיולים הקיימים לא נפגעים.</p>
-    </div>
-    <div class="field"><label>בחר תמונה</label>
-      <input class="inp" type="file" id="ii-file" accept="image/*"></div>
-    <button class="btn btn-primary btn-block" id="ii-go" onclick="runImageImport()">${ic('spark',17)} ניתוח התמונה</button>
-    <div id="ii-status" class="mini-note" style="text-align:center;margin-top:12px"></div>
-    <p class="mini-note">התמונה נשלחת ל-Claude לצורך הפענוח. טקסט לא ברור לא ינוחש — יסומן כהערה.</p>`);
-}
-function iiStatus(msg){ const el=document.getElementById('ii-status'); if(el) el.innerHTML=msg; }
-async function runImageImport(){
-  const inp=document.getElementById('ii-file');
-  const f=inp&&inp.files[0];
-  if(!f){ toast('בחר תמונה קודם'); return; }
-  const btn=document.getElementById('ii-go');
-  btn.disabled=true; btn.textContent='מנתח…';
-  try{
-    iiStatus('⟳ מכין את התמונה…');
-    const dataUrl=await compressImage(f); /* downscale to ≤1280px, jpeg */
-    iiStatus('⟳ Claude קורא את הטבלה… (עד ~20 שניות)');
-    const raw=await ImageImportService.analyze(dataUrl);
-    iiStatus('⟳ בונה תצוגה מקדימה…');
-    const {trip,warnings}=normalizeImportedTrip(raw);
-    if(!trip.destinations.length) throw new Error('לא זוהתה תוכנית טיול בתמונה');
-    __importDraft=trip;
-    previewImportedTrip(trip,warnings);
-  }catch(e){
-    console.error(e);
-    iiStatus('⚠ '+esc(e.message||'הניתוח נכשל')+'<br>אפשר לנסות שוב, רצוי עם תמונה חדה יותר.'+
-      (location.protocol==='file:'?'<br><b>שים לב:</b> בגרסה המקומית נדרש חיבור לרשת ל-API.':''));
-    btn.disabled=false; btn.innerHTML='ניסיון נוסף';
-  }
-}
-function previewImportedTrip(t,warnings){
-  const st=importedTripStats(t);
-  const typeChip=e=>{const ty=evType(e.type);return `<span class="tag" style="padding:3px 9px 3px 5px"><span class="t-ic" style="width:18px;height:18px;border-radius:6px;background:${ty.color};display:inline-flex;align-items:center;justify-content:center;color:#fff">${ic(ty.icon,11)}</span><span class="tag-name" style="font-size:12px">${esc(e.title.length>26?e.title.slice(0,26)+'…':e.title)}</span>${e.time?`<span class="tag-note">${e.time}</span>`:''}</span>`;};
-  let body=`<div class="card pad" style="margin-bottom:12px">
-    <div class="field" style="margin-bottom:8px"><label>שם הטיול</label>
-      <input class="inp" id="pi-trip-name" value="${esc(t.name)}"></div>
-    <div style="display:flex;gap:16px;font-size:12.5px;color:var(--ink2);font-weight:600">
-      <span>${st.dests} יעדים</span><span>${st.days} ימים</span><span>${st.evs} אירועים</span>
-      <span>${fmtD(t.destinations[0].startDate)} – ${fmtD(t.destinations[t.destinations.length-1].endDate)}</span>
-    </div>
-  </div>`;
-  if(warnings&&warnings.length)
-    body+=`<div class="card pad" style="margin-bottom:12px;background:var(--amber-soft);border-color:transparent">
-      <b style="font-size:12.5px;color:var(--amber)">${ic('alert',14)} הערות פענוח (${warnings.length})</b>
-      <div style="font-size:12px;color:var(--ink2);margin-top:6px;line-height:1.6">${warnings.slice(0,6).map(esc).join('<br>')}${warnings.length>6?'<br>…':''}</div>
-    </div>`;
-  t.destinations.forEach(d=>{
-    body+=`<div class="card pad" style="margin-bottom:11px">
-      <b style="font-size:15px">⛩ ${esc(d.name)}</b>
-      <div style="font-size:12px;color:var(--ink2);margin:2px 0 8px">${fmtD(d.startDate)} – ${fmtD(d.endDate)} · ${diffDays(d.startDate,d.endDate)+1} ימים</div>
-      ${d.days.map(day=>day.events.length?`
-        <div style="margin-bottom:8px">
-          <div style="font-size:11.5px;font-weight:800;color:var(--ink3);margin-bottom:4px">${fmtD(day.date,{weekday:'short',day:'numeric',month:'numeric'})}</div>
-          <div class="tag-list" style="margin:0">${day.events.map(typeChip).join('')}</div>
-        </div>`:'').join('')}
-    </div>`;
-  });
-  body+=`<div class="row2" style="margin-top:6px">
-    <button class="btn btn-ghost" onclick="closeSheet()">ביטול</button>
-    <button class="btn btn-primary" onclick="confirmImportTrip()">${ic('check',17)} אישור וייבוא</button>
-  </div>
-  <p class="mini-note">שום דבר לא נשמר עד לאישור. הייבוא מוסיף טיול חדש בלבד.</p>`;
-  openSheet('תצוגה מקדימה לייבוא', body);
-}
-function confirmImportTrip(){
-  const t=__importDraft; if(!t){ toast('אין טיוטה לייבוא'); return; }
-  const nameEl=document.getElementById('pi-trip-name');
-  const trip=newTripObj();
-  trip.name=(nameEl&&nameEl.value.trim())||t.name;
-  trip.country=t.country;
-  trip.notes=t.notes;
-  const allDates=t.destinations.flatMap(d=>[d.startDate,d.endDate]).sort();
-  trip.startDate=allDates[0]; trip.endDate=allDates[allDates.length-1];
-  t.destinations.forEach(d=>{
-    const dest={id:uid(), name:d.name, startDate:d.startDate, endDate:d.endDate, notes:d.notes||'', days:[]};
-    syncDestDays(dest);
-    d.days.forEach(rd=>{
-      const day=dest.days.find(x=>x.date===rd.date);
-      if(!day) return;
-      rd.events.forEach(ev=>{
-        day.events.push({id:uid(), type:ev.type, title:ev.title,
-          time:ev.time||'', duration:'', address:'', estCost:ev.estCost||'', actualCost:'',
-          website:'', phone:'', bookingRef:ev.bookingRef||'', priority:ev.priority||'',
-          notes:ev.notes||'', status:'upcoming', favorite:false});
-      });
-    });
-    trip.destinations.push(dest);
-  });
-  S.trips.unshift(trip);
-  S.activeTripId=trip.id;
-  ensureShapes();
-  __importDraft=null;
-  save('הטיול יובא מהתמונה ✓');
-  closeSheet();
-  navSub('home','trips');
-}
-Object.assign(window,{openImageImport, runImageImport, confirmImportTrip});
-</script>
 <script>
 /* ---- hotel booking form & detail ---- */
 function recalcHotelNights(){
@@ -4114,70 +3755,10 @@ async function deleteHotelBooking(id){
 Object.assign(window,{openHotelForm, saveHotelBooking, openHotelDetail, deleteHotelBooking, recalcHotelNights});
 </script>
 <script>
-/* ---- install on phone (PWA) ---- */
-let __installPrompt=null;
-window.addEventListener('beforeinstallprompt',e=>{
-  e.preventDefault(); __installPrompt=e;
-  const b=document.getElementById('inst-native'); if(b) b.style.display='';
-});
+/* PWA: service worker registration only (installation UI removed) */
 if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
-function installEnv(){
-  const standalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;
-  return {standalone,
-    hosted:/^https?:$/.test(location.protocol),
-    file:location.protocol==='file:',
-    ios:/iPhone|iPad|iPod/i.test(navigator.userAgent),
-    android:/Android/i.test(navigator.userAgent)};
-}
-async function nativeInstall(){
-  if(!__installPrompt){ toast('הדפדפן לא מציע כאן התקנה — פעל לפי השלבים למטה'); return; }
-  __installPrompt.prompt();
-  const r=await __installPrompt.userChoice;
-  if(r && r.outcome==='accepted'){ toast('האפליקציה הותקנה ✓'); closeSheet(); }
-  __installPrompt=null;
-}
-function openInstallGuide(){
-  const env=installEnv();
-  let status;
-  if(env.standalone) status=`<span class="status-pill st-done">מותקן ✓</span><span style="font-size:12.5px;color:var(--ink2)"> אתה כבר מריץ את הגרסה המותקנת</span>`;
-  else if(env.hosted) status=`<span class="status-pill st-upcoming">מוכן להתקנה</span><span style="font-size:12.5px;color:var(--ink2)"> האפליקציה רצה מכתובת אינטרנט — אפשר להוסיף למסך הבית</span>`;
-  else status=`<span class="status-pill st-cancelled">נפתח כקובץ</span><span style="font-size:12.5px;color:var(--ink2)"> כך אי אפשר להתקין — צריך כתובת אינטרנט (שלב 1 למטה)</span>`;
-  openSheet('התקנה בטלפון כאפליקציה', `
-    <div class="card pad" style="margin-bottom:14px">${status}</div>
-
-    ${env.hosted?`
-    <div class="card pad" style="margin-bottom:14px;background:var(--accent-soft);border-color:transparent">
-      <b style="font-size:14px;color:var(--accent-ink)">${ic('download',16)} מכאן זה שני צעדים</b>
-      <div style="font-size:13.5px;line-height:1.7;margin-top:8px">
-        <b>iPhone:</b> ספארי ← כפתור שיתוף ${ic('share',13)} ← <b>"הוסף למסך הבית"</b>.<br>
-        <b>Android:</b> כרום ← תפריט ⋮ ← <b>"הוספה למסך הבית" / "התקנת אפליקציה"</b>.
-      </div>
-      <button class="btn btn-primary btn-block" id="inst-native" style="display:none;margin-top:12px" onclick="nativeInstall()">${ic('download',17)} התקנה עכשיו</button>
-    </div>`:`
-    <div class="card pad" style="margin-bottom:14px;background:var(--amber-soft);border-color:transparent">
-      <b style="font-size:13.5px;color:var(--amber)">${ic('alert',15)} למה זה לא עובד מ"קבצים"?</b>
-      <p style="margin:5px 0 0;font-size:12.5px;color:var(--ink2);line-height:1.6">קובץ HTML שנפתח מאפליקציית הקבצים מוצג בתצוגה מקדימה בלבד — לטלפון אין ממה "להתקין". iPhone ו-Android מתקינים אפליקציית-ווב רק מכתובת אינטרנט (https).</p>
-    </div>`}
-
-    <div class="section-label" style="margin-top:2px">${ic('globe',14)} שלב 1 · העלאה לכתובת (פעם אחת, ~3 דקות)</div>
-    <ol style="margin:0 0 6px;padding-inline-start:18px;font-size:13.5px;line-height:1.75">
-      <li>הורד מהצ׳אט את <b>tiyulim-pwa.zip</b> וחלץ אותו במחשב.</li>
-      <li>היכנס ל-<b>netlify.com</b> (חשבון חינמי) ← Add new site ← <b>Deploy manually</b>.</li>
-      <li>גרור את התיקייה שחולצה ← תקבל כתובת קבועה כמו <span style="direction:ltr;display:inline-block">https://tiyulim.netlify.app</span></li>
-    </ol>
-    <p class="mini-note" style="margin-top:0">חלופות: GitHub Pages, או פרסום הארטיפקט ב-Claude ופתיחת הקישור בטלפון.</p>
-
-    <div class="section-label">${ic('phone',14)} שלב 2 · בטלפון</div>
-    <div style="font-size:13.5px;line-height:1.8;margin-bottom:10px">
-      פתח את הכתובת בדפדפן ←
-      <b>iPhone:</b> שיתוף ← "הוסף למסך הבית" ·
-      <b>Android:</b> ⋮ ← "התקנת אפליקציה".
-    </div>
-    <p class="mini-note">מרגע ההתקנה: אייקון "טיולים" במסך הבית, מסך מלא בלי דפדפן, ועבודה גם בלי אינטרנט. <b>עדכון גרסה</b> = מעלים קובץ חדש לאותו אתר — האפליקציה מתעדכנת לבד. הנתונים נשמרים במכשיר ולא נמחקים בעדכון.</p>`);
-}
-Object.assign(window,{openInstallGuide, nativeInstall});
 </script>
 <script>
 /* ==== CLOUD CORE ==== */
@@ -4276,7 +3857,11 @@ const CloudAPI={
   getBlob(key){ return this.req('GET','blobs?key=eq.'+encodeURIComponent(key)+'&select=value'); },
   putBlob(key,tripId,value){ return this.req('POST','blobs?on_conflict=key',[{key,trip_id:tripId||null,value}],{'Prefer':'resolution=merge-duplicates,return=minimal'}); },
   getState(){ return this.req('GET','user_state?select=payload'); },
-  putState(payload){ return this.req('POST','user_state?on_conflict=user_id',[{user_id:Auth.user().id,payload}],{'Prefer':'resolution=merge-duplicates,return=minimal'}); }
+  putState(payload){ return this.req('POST','user_state?on_conflict=user_id',[{user_id:Auth.user().id,payload}],{'Prefer':'resolution=merge-duplicates,return=minimal'}); },
+  activeCode(tripId){ return this.req('GET','trip_codes?trip_id=eq.'+tripId+'&revoked=eq.false&select=code,role,expires_at&order=expires_at.desc&limit=1'); },
+  createCode(tripId,code,role,expiresISO){ return this.req('POST','trip_codes',[{code,trip_id:tripId,role,expires_at:expiresISO}],{'Prefer':'return=minimal'}); },
+  revokeCodes(tripId){ return this.req('PATCH','trip_codes?trip_id=eq.'+tripId+'&revoked=eq.false',{revoked:true}); },
+  redeemCode(code){ return this.req('POST','rpc/redeem_trip_code',{p_code:code}); }
 };
 function cloudPayload(t){ return {v:3, trip:stripCloud(t), docs:docsForTrip(t.id)}; }
 function stripCloud(t){ const c=JSON.parse(JSON.stringify(t)); delete c.cloud; delete c.share; return c; }
@@ -4407,6 +3992,7 @@ const CloudSync={
     if(changed){ if(typeof ensureShapes==='function') ensureShapes(); save(); render(); }
   },
   async pushDirty(){
+    if(Auth.session && S.trips.some(t=>!t.cloud && !t.share)) await this.migrateLocal();
     for(const t of this.cloudTrips()){
       if(t.cloud.role==='view') continue;
       const fp=cloudFingerprint(t);
@@ -4474,7 +4060,7 @@ const CloudSync={
   async migrateLocal(){
     const locals=S.trips.filter(t=>!(t.cloud&&t.cloud.id));
     if(!locals.length) return 0;
-    toast('מעביר '+locals.length+' טיולים לענן…');
+    if(locals.length>1) toast('מעביר '+locals.length+' טיולים לענן…');
     let n=0;
     for(const t of locals){
       try{
@@ -4490,7 +4076,7 @@ const CloudSync={
     }
     await this.pushState();
     save(); render();
-    if(n) toast(n+' טיולים בענן ✓');
+    if(n>1) toast(n+' טיולים בענן ✓');
     return n;
   }
 };
@@ -4591,6 +4177,14 @@ async function openCloudShare(tripId){
   let members=[],invites=[];
   try{ members=await CloudAPI.members(t.cloud.id)||[]; }catch(e){}
   if(isOwner){ try{ invites=await CloudAPI.invites(t.cloud.id)||[]; }catch(e){} }
+  let codeRow=null;
+  if(isOwner){
+    try{
+      const cr=await CloudAPI.activeCode(t.cloud.id);
+      codeRow=(cr&&cr[0])||null;
+      if(codeRow && new Date(codeRow.expires_at) <= new Date()) codeRow=null;
+    }catch(e){}
+  }
   const el=document.getElementById('cs-body'); if(!el) return;
   let body=`<div class="card pad" style="background:var(--accent-soft);border-color:transparent;margin-bottom:14px">
     <b style="font-size:13.5px;color:var(--accent-ink)">${ic('link',15)} טיול משותף בענן · <span data-shp="${t.cloud.id}">${CloudSync.label(t.cloud.id)}</span></b>
@@ -4606,6 +4200,29 @@ async function openCloudShare(tripId){
       </div>
       <button class="btn btn-primary btn-block" style="margin-top:10px" onclick="sendInvite('${tripId}')">${ic('plus',16)} שליחת הזמנה</button>
       <p class="mini-note" style="margin-top:8px">המוזמן נרשם לאפליקציה עם האימייל הזה — והטיול מופיע לו אוטומטית.</p></div><hr class="hr">`;
+  }
+  if(isOwner){
+    body+=`<div class="section-label" style="margin-top:2px">${ic('link',14)} קוד הזמנה</div>
+    <div class="card pad" style="margin-bottom:14px">`;
+    if(codeRow){
+      body+=`<div class="share-code" style="margin-top:2px">${codeRow.code.split('').map(c=>`<span>${c}</span>`).join('')}</div>
+      <div style="text-align:center;font-size:12px;color:var(--ink2);margin:-4px 0 12px">הרשאת ${codeRow.role==='edit'?'עריכה':'צפייה'} · בתוקף עד ${fmtD(codeRow.expires_at.slice(0,10))}</div>
+      <div class="row2">
+        <button class="btn btn-ghost" onclick="copyTripCode('${codeRow.code}')">${ic('copy',15)} העתקה</button>
+        <button class="btn btn-soft" onclick="shareTripCode('${tripId}','${codeRow.code}')">${ic('share',15)} שיתוף</button>
+      </div>
+      <div class="row2" style="margin-top:8px">
+        <button class="btn btn-ghost btn-sm" onclick="newTripCode('${tripId}')">${ic('refresh',14)} קוד חדש</button>
+        <button class="btn btn-danger btn-sm" onclick="revokeTripCode('${tripId}')">${ic('x',14)} ביטול הקוד</button>
+      </div>`;
+    }else{
+      body+=`<div style="display:flex;gap:8px;align-items:stretch">
+        <select class="inp" id="tc-role" style="flex:1"><option value="edit">עריכה</option><option value="view">צפייה</option></select>
+        <button class="btn btn-primary" style="flex:1.6" onclick="newTripCode('${tripId}')">${ic('plus',15)} יצירת קוד</button>
+      </div>
+      <p class="mini-note" style="margin-top:9px">שולחים את הקוד למי שרוצים; הוא מזין אותו ב"הצטרפות בקוד" ומצטרף לטיול הזה. תוקף: 14 יום או עד ביטול. לא ניתן להצטרף פעמיים.</p>`;
+    }
+    body+=`</div>`;
   }
   body+=`<div class="section-label" style="margin-top:2px">${ic('user',14)} משתתפים (${members.length+1})</div>
   <div class="card" style="padding:2px 14px">
@@ -4659,6 +4276,50 @@ Object.assign(window,{openAuthSheet,doSignIn,doSignUp,doRecover,openAccountSheet
 (function(){
   const w=setInterval(()=>{ if(loaded){ clearInterval(w); cloudBoot(); } },300);
 })();
+</script>
+<script>
+/* ---- trip invitation codes ---- */
+async function newTripCode(tripId){
+  const t=tripById(tripId); if(!t||!t.cloud) return;
+  const sel=document.getElementById('tc-role');
+  const role=sel?sel.value:'edit';
+  const code=genShareCode(8);
+  const exp=new Date(Date.now()+14*24*3600*1000).toISOString();
+  try{
+    try{ await CloudAPI.revokeCodes(t.cloud.id); }catch(e){}
+    await CloudAPI.createCode(t.cloud.id, code, role, exp);
+    toast('קוד הזמנה נוצר ✓');
+    openCloudShare(tripId);
+  }catch(e){
+    toast(/trip_codes/i.test(e.message||'')?'חסרה טבלת הקודים — הרץ את עדכון ה-SQL':'יצירת הקוד נכשלה: '+e.message);
+  }
+}
+function copyTripCode(code){
+  const done=()=>toast('הקוד הועתק: '+code);
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done).catch(()=>prompt('העתק:',code));
+  else prompt('העתק:',code);
+}
+async function shareTripCode(tripId,code){
+  const t=tripById(tripId);
+  const url=appPublicUrl();
+  const text='מצטרפים אליי לתכנון "'+(t?t.name:'הטיול')+'" באפליקציית טיולים 🗺️\nקוד הזמנה: '+code+'\nבתוך האפליקציה: שיתוף ← הצטרפות בקוד';
+  if(navigator.share){
+    try{ await navigator.share(url?{title:'טיולים',text,url}:{title:'טיולים',text}); return; }
+    catch(e){ if(e&&e.name==='AbortError') return; }
+  }
+  copyTripCode(code);
+}
+async function revokeTripCode(tripId){
+  const t=tripById(tripId); if(!t||!t.cloud) return;
+  const ok=await confirmDialog('הקוד יבוטל — מי שטרם הצטרף לא יוכל להשתמש בו. משתתפים קיימים נשארים.');
+  if(!ok) return;
+  try{
+    await CloudAPI.revokeCodes(t.cloud.id);
+    toast('הקוד בוטל ✓');
+    openCloudShare(tripId);
+  }catch(e){ toast('הביטול נכשל: '+e.message); }
+}
+Object.assign(window,{newTripCode, copyTripCode, shareTripCode, revokeTripCode});
 </script>
 </body>
 </html>
