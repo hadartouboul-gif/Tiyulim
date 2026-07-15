@@ -45,6 +45,7 @@ html[data-theme=dark]{
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
 html,body{height:100%; width:100%; max-width:100%; overflow-x:hidden;}
+body{overscroll-behavior-y:contain;}
 html{-webkit-text-size-adjust:100%;}
 img,svg,video,canvas{max-width:100%;}
 body{
@@ -454,6 +455,7 @@ a.mini-link{
 
 /* timeline v2 */
 .timeline .ev{animation:evIn .34s cubic-bezier(.2,.8,.3,1) both;}
+.no-anim .ev{animation:none !important;}
 @keyframes evIn{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:none;}}
 .now-row{display:flex; align-items:center; gap:10px; padding:4px 0; position:relative;}
 .now-dot{width:12px; height:12px; border-radius:50%; background:var(--red); margin-inline-start:14px;
@@ -481,6 +483,17 @@ a.mini-link{
 .add-ev-row .ev-card{background:transparent; border:1.5px dashed var(--line); box-shadow:none;
   color:var(--ink2); font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:8px;}
 .add-ev-row .ev-card:active{transform:scale(.985); background:var(--card2);}
+
+/* pull to refresh */
+#ptr{position:fixed; top:calc(env(safe-area-inset-top,0px) + 6px); left:50%;
+  transform:translate(-50%,-60px); opacity:0; z-index:58;
+  width:40px; height:40px; border-radius:50%; background:var(--card);
+  border:1px solid var(--line); box-shadow:var(--sh-md);
+  display:flex; align-items:center; justify-content:center; pointer-events:none;}
+.ptr-ring{width:20px; height:20px; border-radius:50%;
+  border:2.5px solid var(--line2); border-top-color:var(--accent);}
+#ptr.spin .ptr-ring{animation:ptrspin .7s linear infinite;}
+@keyframes ptrspin{to{transform:rotate(360deg);}}
 
 /* journal */
 .journal-card{margin:0 0 16px;}
@@ -1047,6 +1060,12 @@ function render(){
   const fab=document.getElementById('fab');
   if(!fab.querySelector('.ic')) fab.innerHTML=ic('plus',26,2.2);
   fab.classList.remove('hide');
+  const viewKey=UI.screen+'|'+(UI.destId||'')+'|'+(UI.dayId||'')+'|'+(UI.moreView||'');
+  const sameView=(window.__viewKey===viewKey);
+  window.__viewKey=viewKey;
+  const sy=window.scrollY;
+  const phCache={};
+  el.querySelectorAll('img[id^="ph-"]').forEach(i=>{ if(i.src) phCache[i.id]=i.src; });
   let html='';
   if(UI.screen==='trips') html=screenTrips();
   else if(UI.screen==='itinerary') html=screenItinerary();
@@ -1060,18 +1079,39 @@ function render(){
   else if(UI.screen==='reminders') html=screenReminders();
   else if(UI.screen==='assistant') html=screenAssistant();
   else html=screenMore();
+  el.classList.toggle('no-anim', sameView);
   el.innerHTML=html;
+  Object.keys(phCache).forEach(pid=>{ const n=document.getElementById(pid); if(n && !n.src) n.src=phCache[pid]; });
+  if(sameView) window.scrollTo(0, sy);
   afterRender();
 }
-function afterRender(){
+function bindDayDrag(){
   const tl=document.getElementById('evList');
-  if(tl){
-    enableDrag(tl,'.ev[data-real]','.drag-handle', ids=>{
-      const day=currentDay(); if(!day) return;
-      day.events.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));
-      save(); render();
-    });
-  }
+  if(!tl) return;
+  enableDrag(tl,'.ev[data-real]','.drag-handle', ids=>{
+    const day=currentDay(); if(!day) return;
+    day.events.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));
+    save(); refreshDay();
+  });
+}
+function refreshDay(){
+  const t=activeTrip();
+  if(UI.screen!=='itinerary' || !t){ render(); return; }
+  const dest=currentDest(), day=currentDay();
+  if(!dest || !day){ render(); return; }
+  const list=document.getElementById('evList');
+  const stays=hotelsForDate(t, day.date);
+  if(!list || (!day.events.length && !stays.length)){ render(); return; }
+  const today=todayStr();
+  const sum=document.getElementById('daySummary');
+  if(sum) sum.outerHTML=daySummary(day);
+  const pills=document.getElementById('dayPills');
+  if(pills) pills.innerHTML=dayPillsHTML(dest, day.id, today);
+  list.innerHTML=dayTimelineHTML(t, day, today);
+  bindDayDrag();
+}
+function afterRender(){
+  bindDayDrag();
   window.onscroll=()=>{
     const top=document.querySelector('.top');
     if(top) top.classList.toggle('scrolled', window.scrollY>8);
@@ -1301,14 +1341,7 @@ function screenItinerary(){
   html+=destCover(dest);
   if(!dest.days.length) return html+emptyState('calendar','אין ימים ביעד','קבע תאריכי התחלה וסיום ליעד כדי שייווצרו ימים','');
   const today=todayStr();
-  html+=`<div class="chips">${dest.days.map(d=>{
-    const dt=pd(d.date);
-    return `<button class="day-pill ${d.id===day.id?'active':''} ${d.date===today?'is-today':''}" onclick="UI.dayId='${d.id}';render()">
-      <span class="dow">${dt.toLocaleDateString('he-IL',{weekday:'short'})}</span>
-      <span class="dnum">${dt.getDate()}</span>
-      <span class="dmon">${dt.toLocaleDateString('he-IL',{month:'short'})}</span>
-      ${d.events.length?'<span class="dot"></span>':''}
-    </button>`;}).join('')}</div>`;
+  html+=`<div class="chips" id="dayPills">${dayPillsHTML(dest, day.id, today)}</div>`;
   html+=daySummary(day);
   html+=journalCard(day);
   html+=`<div class="section-label">${ic('clock',14)} ציר הזמן · יום ${dest.days.indexOf(day)+1} ב${esc(dest.name)}</div>`;
@@ -1317,23 +1350,37 @@ function screenItinerary(){
     html+=emptyState('spark','יום פנוי','הוסף אירועים: טיסות, מלונות, מסעדות, אטרקציות ועוד',
       `<button class="btn btn-soft" onclick="openEventForm()">${ic('plus',17)} אירוע ראשון</button>`);
   }else{
-    const rows=day.events.map((e,i)=>eventRow(e,i));
-    if(day.date===today){
-      const cur=new Date(), hm=String(cur.getHours()).padStart(2,'0')+':'+String(cur.getMinutes()).padStart(2,'0');
-      let idx=day.events.findIndex(e=>e.time && e.time>hm);
-      if(idx===-1) idx=day.events.length;
-      rows.splice(idx,0,`<div class="now-row"><div class="now-dot"></div><div class="now-track"><span>עכשיו · ${hm}</span></div></div>`);
-    }
-    const outRows=stays.filter(b=>hotelDayMode(b,day.date)==='out').map(b=>hotelStayRow(b,'out'));
-    const inRows=stays.filter(b=>['in','inout'].includes(hotelDayMode(b,day.date))).map(b=>hotelStayRow(b,hotelDayMode(b,day.date)));
-    const midRows=stays.filter(b=>hotelDayMode(b,day.date)==='stay').map(b=>hotelStayRow(b,'stay'));
-    html+=`<div class="timeline" id="evList">${outRows.join('')+rows.join('')+midRows.join('')+inRows.join('')}
-      <div class="ev add-ev-row">
-        <div class="ev-node">${ic('plus',18)}</div>
-        <div class="ev-card" onclick="openEventForm()">${ic('plus',15)} הוספת אירוע ליום הזה</div>
-      </div></div>`;
+    html+=`<div class="timeline" id="evList">${dayTimelineHTML(t, day, today)}</div>`;
   }
   return html;
+}
+function dayPillsHTML(dest, activeDayId, today){
+  return dest.days.map(d=>{
+    const dt=pd(d.date);
+    return `<button class="day-pill ${d.id===activeDayId?'active':''} ${d.date===today?'is-today':''}" onclick="UI.dayId='${d.id}';render()">
+      <span class="dow">${dt.toLocaleDateString('he-IL',{weekday:'short'})}</span>
+      <span class="dnum">${dt.getDate()}</span>
+      <span class="dmon">${dt.toLocaleDateString('he-IL',{month:'short'})}</span>
+      ${d.events.length?'<span class="dot"></span>':''}
+    </button>`;}).join('');
+}
+function dayTimelineHTML(t, day, today){
+  const stays=hotelsForDate(t, day.date);
+  const rows=day.events.map((e,i)=>eventRow(e,i));
+  if(day.date===today){
+    const cur=new Date(), hm=String(cur.getHours()).padStart(2,'0')+':'+String(cur.getMinutes()).padStart(2,'0');
+    let idx=day.events.findIndex(e=>e.time && e.time>hm);
+    if(idx===-1) idx=day.events.length;
+    rows.splice(idx,0,`<div class="now-row"><div class="now-dot"></div><div class="now-track"><span>עכשיו · ${hm}</span></div></div>`);
+  }
+  const outRows=stays.filter(b=>hotelDayMode(b,day.date)==='out').map(b=>hotelStayRow(b,'out'));
+  const inRows=stays.filter(b=>['in','inout'].includes(hotelDayMode(b,day.date))).map(b=>hotelStayRow(b,hotelDayMode(b,day.date)));
+  const midRows=stays.filter(b=>hotelDayMode(b,day.date)==='stay').map(b=>hotelStayRow(b,'stay'));
+  return outRows.join('')+rows.join('')+midRows.join('')+inRows.join('')
+    +`<div class="ev add-ev-row">
+        <div class="ev-node">${ic('plus',18)}</div>
+        <div class="ev-card" onclick="openEventForm()">${ic('plus',15)} הוספת אירוע ליום הזה</div>
+      </div>`;
 }
 function hotelStayRow(b,mode){
   const lbl=mode==='in'?'צ׳ק-אין':(mode==='out'?'צ׳ק-אאוט':(mode==='inout'?'צ׳ק-אין / צ׳ק-אאוט':'לינה במלון'));
@@ -1363,7 +1410,7 @@ function daySummary(day){
     {n:act?money(act):money(est), l:act?'הוצא':'צפוי'}
   ];
   if(walk>0) cells.push({n:fmtMin(walk), l:'הליכה'});
-  return `<div class="summary ${cells.length===3?'cols-3':''}">${cells.map(c=>`
+  return `<div class="summary ${cells.length===3?'cols-3':''}" id="daySummary">${cells.map(c=>`
     <div class="sum-cell"><div class="sum-num">${c.n}</div><div class="sum-lbl">${c.l}</div></div>`).join('')}</div>`;
 }
 function eventRow(e,i){
@@ -1583,19 +1630,19 @@ function saveEventForm(id, again){
     notes:g('ef-notes') };
   if(id){
     Object.assign(day.events.find(x=>x.id===id), data);
-    save('נשמר'); closeSheet(); render();
+    save('נשמר'); closeSheet(); refreshDay();
     return;
   }
   day.events.push(Object.assign({id:uid(), status:'upcoming', favorite:false}, data));
   if(again){
     const keepType=window.__evType;
     save('"'+title+'" נוסף ✓');
-    render();
+    refreshDay();
     openEventForm(null, keepType);
     const ti=document.getElementById('ef-title');
     if(ti) ti.focus();
   }else{
-    save('נשמר'); closeSheet(); render();
+    save('נשמר'); closeSheet(); refreshDay();
   }
 }
 function openEventDetail(id){
@@ -1641,11 +1688,11 @@ function openEventDetail(id){
 }
 function setEvStatus(id,st){
   const day=currentDay(); const e=day.events.find(x=>x.id===id); if(!e) return;
-  e.status=st; save('עודכן'); closeSheet(); render();
+  e.status=st; save('עודכן'); closeSheet(); refreshDay();
 }
 function toggleEvFav(id){
   const day=currentDay(); const e=day.events.find(x=>x.id===id); if(!e) return;
-  e.favorite=!e.favorite; save(); closeSheet(); render();
+  e.favorite=!e.favorite; save(); closeSheet(); refreshDay();
 }
 async function deleteEvent(id){
   closeSheet();
@@ -1653,7 +1700,7 @@ async function deleteEvent(id){
   if(!ok) return;
   const day=currentDay();
   day.events=day.events.filter(x=>x.id!==id);
-  save('נמחק'); render();
+  save('נמחק'); refreshDay();
 }
 </script>
 <script>
@@ -1950,7 +1997,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.4 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.5 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2193,7 +2240,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 2.4</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 2.5</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -3795,7 +3842,7 @@ function saveHotelBooking(id){
   }else{
     t.hotels.push(Object.assign({id:uid()},data));
   }
-  save('הזמנת המלון נשמרה'); closeSheet(); render();
+  save('הזמנת המלון נשמרה'); closeSheet(); refreshDay();
 }
 function openHotelDetail(id){
   const t=activeTrip(); if(!t) return;
@@ -3838,7 +3885,7 @@ async function deleteHotelBooking(id){
   if(!ok) return;
   const t=activeTrip();
   t.hotels=(t.hotels||[]).filter(b=>b.id!==id);
-  save('הזמנת המלון נמחקה'); render();
+  save('הזמנת המלון נמחקה'); refreshDay();
 }
 Object.assign(window,{openHotelForm, saveHotelBooking, openHotelDetail, deleteHotelBooking, recalcHotelNights, openDestMenu, addDestRelative});
 </script>
@@ -4408,6 +4455,88 @@ async function revokeTripCode(tripId){
   }catch(e){ toast('הביטול נכשל: '+e.message); }
 }
 Object.assign(window,{newTripCode, copyTripCode, shareTripCode, revokeTripCode});
+</script>
+<script>
+/* ---- pull to refresh (native-feel, Supabase-aware) ---- */
+const PTR_TRIGGER=40;
+function ptrDamp(dy){ return Math.min(90, Math.round(dy*0.45)); }
+(function(){
+  const ptr=document.createElement('div');
+  ptr.id='ptr';
+  ptr.innerHTML='<div class="ptr-ring"></div>';
+  document.body.appendChild(ptr);
+  let startY=null, pulling=false, dist=0, refreshing=false;
+  const scr=()=>document.getElementById('screen');
+  function setPull(d){
+    dist=d;
+    ptr.style.transform='translate(-50%,'+(d-52)+'px)';
+    ptr.style.opacity=String(Math.min(1, d/38));
+    const ring=ptr.querySelector('.ptr-ring');
+    if(ring) ring.style.transform='rotate('+(d*4)+'deg)';
+    const s=scr();
+    if(s) s.style.transform=d?('translateY('+Math.min(54, Math.round(d*0.55))+'px)'):'';
+  }
+  function settle(){
+    const s=scr();
+    if(s){
+      s.style.transition='transform .28s cubic-bezier(.2,.8,.3,1)';
+      s.style.transform='';
+      setTimeout(()=>{ const n=scr(); if(n) n.style.transition=''; }, 320);
+    }
+    ptr.classList.remove('spin');
+    ptr.style.transition='transform .25s, opacity .25s';
+    ptr.style.transform='translate(-50%,-60px)';
+    ptr.style.opacity='0';
+    setTimeout(()=>{ ptr.style.transition=''; const r=ptr.querySelector('.ptr-ring'); if(r) r.style.transform=''; }, 280);
+    startY=null; pulling=false; dist=0;
+  }
+  async function doRefresh(){
+    refreshing=true;
+    ptr.classList.add('spin');
+    ptr.style.transition='transform .18s';
+    ptr.style.transform='translate(-50%,10px)';
+    ptr.style.opacity='1';
+    const s=scr();
+    if(s){ s.style.transition='transform .18s'; s.style.transform='translateY(46px)'; }
+    const minSpin=new Promise(r=>setTimeout(r,650));
+    try{
+      if(typeof CloudSync!=='undefined' && CloudSync.active()){
+        await Promise.all([CloudSync.tick(), CloudSync.pullState().catch(()=>{}), minSpin]);
+      }else{
+        await minSpin;
+      }
+    }catch(e){}
+    refreshing=false;
+    settle();
+    haptic();
+  }
+  document.addEventListener('touchstart',e=>{
+    if(refreshing) return;
+    if(window.scrollY>0) return;
+    if(e.touches.length!==1) return;
+    const sh=document.getElementById('sheet');
+    if(sh && sh.classList.contains('show')) return;
+    const qm=document.getElementById('qmenu');
+    if(qm && qm.classList.contains('show')) return;
+    startY=e.touches[0].clientY;
+    pulling=false;
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(startY==null || refreshing) return;
+    const dy=e.touches[0].clientY-startY;
+    if(dy<=0){ if(pulling){ setPull(0); pulling=false; } return; }
+    if(window.scrollY>0){ startY=null; if(pulling){ setPull(0); pulling=false; } return; }
+    pulling=true;
+    e.preventDefault();
+    setPull(ptrDamp(dy));
+  },{passive:false});
+  document.addEventListener('touchend',()=>{
+    if(startY==null) return;
+    if(pulling && dist>=PTR_TRIGGER) doRefresh();
+    else settle();
+  },{passive:true});
+})();
+Object.assign(window,{refreshDay});
 </script>
 </body>
 </html>
