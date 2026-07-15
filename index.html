@@ -485,14 +485,17 @@ a.mini-link{
 .add-ev-row .ev-card:active{transform:scale(.985); background:var(--card2);}
 
 /* pull to refresh */
-#ptr{position:fixed; top:calc(env(safe-area-inset-top,0px) + 6px); left:50%;
-  transform:translate(-50%,-60px); opacity:0; z-index:58;
-  width:40px; height:40px; border-radius:50%; background:var(--card);
-  border:1px solid var(--line); box-shadow:var(--sh-md);
+#ptr{position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); left:50%;
+  transform:translate(-50%,-64px) scale(.6); opacity:0; z-index:58;
+  width:38px; height:38px; border-radius:50%;
+  background:var(--card); border:1px solid var(--line);
+  box-shadow:0 8px 24px rgba(15,23,42,.18);
   display:flex; align-items:center; justify-content:center; pointer-events:none;}
-.ptr-ring{width:20px; height:20px; border-radius:50%;
-  border:2.5px solid var(--line2); border-top-color:var(--accent);}
-#ptr.spin .ptr-ring{animation:ptrspin .7s linear infinite;}
+#ptr svg{width:22px; height:22px; display:block;}
+#ptr .ptr-arc{fill:none; stroke:var(--accent); stroke-width:2.6; stroke-linecap:round;
+  stroke-dasharray:56.6; stroke-dashoffset:56.6;}
+#ptr.spin svg{animation:ptrspin .8s linear infinite;}
+#ptr.spin .ptr-arc{stroke-dashoffset:14; transition:stroke-dashoffset .18s;}
 @keyframes ptrspin{to{transform:rotate(360deg);}}
 
 /* journal */
@@ -1630,10 +1633,12 @@ function saveEventForm(id, again){
     notes:g('ef-notes') };
   if(id){
     Object.assign(day.events.find(x=>x.id===id), data);
+    sortDayEvents(day);
     save('נשמר'); closeSheet(); refreshDay();
     return;
   }
   day.events.push(Object.assign({id:uid(), status:'upcoming', favorite:false}, data));
+  sortDayEvents(day);
   if(again){
     const keepType=window.__evType;
     save('"'+title+'" נוסף ✓');
@@ -1997,7 +2002,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.5 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.7 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2240,7 +2245,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 2.5</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 2.7</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -2473,6 +2478,10 @@ function hotelDayMode(b,date){
   if(date===b.checkOut) return 'out';
   return 'stay';
 }
+function sortDayEvents(day){
+  /* stable: timed events ascending; untimed keep their manual order at the end */
+  day.events.sort((a,b)=>String(a.time||'99:99').localeCompare(String(b.time||'99:99')));
+}
 function shiftDestDays(dest, delta){
   if(!delta) return;
   dest.startDate=addDays(dest.startDate, delta);
@@ -2663,6 +2672,7 @@ function journalGo(destId,dayId){ UI.destId=destId; UI.dayId=dayId; UI.jOpen.add
 <script>
 /* ---- quick add menu (FAB) ---- */
 const QITEMS=[
+  {k:'newtrip',    label:'טיול חדש',  icon:'map',       color:'#3E63DD'},
   {k:'dest',       label:'יעד חדש',   icon:'pin',       color:'#0E9BB5'},
   {k:'pack',       label:'פריט אריזה',icon:'bag',       color:'#12946A'},
   {k:'expense',    label:'הוצאה',     icon:'money',     color:'#E0A417'},
@@ -2690,6 +2700,7 @@ function toggleQuickMenu(){
   haptic();
 }
 function qAct(k){
+  if(k==='newtrip'){ openTripForm(); return; }
   toggleQuickMenu();
   const t=activeTrip();
   const needTrip=()=>{ toast('קודם ניצור טיול'); openTripForm(); };
@@ -2857,6 +2868,16 @@ function screenHome(){
       </span>
       <div style="font-size:11.5px;font-weight:700">${s.l}</div>
     </div>`).join('')}</div>`;
+  /* multi-trip: quick switch + create from the dashboard */
+  html+=`<div class="section-label" style="margin-top:18px">${ic('map',14)} הטיולים שלי (${S.trips.length})</div>
+  <div class="chips" id="homeTrips" style="padding-bottom:4px">
+    ${S.trips.map(x=>{
+      const on=x.id===t.id, xd=tripDates(x);
+      return `<button class="chip ${on?'active':''}" onclick="S.activeTripId='${x.id}';save();render()">${esc(x.name)}${xd.start?`<span style="opacity:.65;font-size:10.5px"> · ${fmtD(xd.start)}</span>`:''}</button>`;
+    }).join('')}
+    <button class="chip" style="border-style:dashed;color:var(--accent-ink)" onclick="openTripForm()">＋ טיול חדש</button>
+  </div>`;
+
   return html;
 }
 function homeGoToday(){
@@ -3573,6 +3594,15 @@ function shareOpt(icon,color,title,desc,onclick){
 function openShareSheet(tripId){
   const t=tripById(tripId); if(!t) return;
   if(typeof CloudSync!=='undefined' && CloudSync.active() && t.cloud){ openCloudShare(tripId); return; }
+  if(typeof CloudSync!=='undefined' && CloudSync.active() && !t.cloud){
+    toast('מעלה את הטיול לענן…');
+    CloudSync.migrateLocal().then(()=>{
+      const t2=tripById(tripId);
+      if(t2 && t2.cloud) openCloudShare(tripId);
+      else toast('ההעלאה נכשלה — בדוק חיבור ונסה שוב');
+    });
+    return;
+  }
   if(typeof CloudSync!=='undefined' && sbBase() && !Auth.session){
     openSheet('שיתוף · '+esc(t.name||'טיול'), `
       <div class="card pad" style="background:var(--accent-soft);border-color:transparent">
@@ -3654,6 +3684,17 @@ async function leaveShare(tripId){
 function openShareHub(){
   const live=ShareSync.available();
   openSheet('שיתוף והצטרפות', `
+    ${(typeof CloudSync!=='undefined'&&CloudSync.active())?(()=>{
+      const mine=S.trips.filter(x=>x.cloud&&x.cloud.role==='owner');
+      if(!mine.length) return '';
+      const act=activeTrip();
+      const def=(act&&act.cloud&&act.cloud.role==='owner')?act.id:mine[0].id;
+      return `<div class="field"><label>שיתוף טיול שלך בקוד הזמנה</label>
+        ${mine.length>1?`<select class="inp" id="hub-trip" style="margin-bottom:10px">${mine.map(x=>`<option value="${x.id}" ${x.id===def?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}
+        <button class="btn btn-primary btn-block" onclick="hubOpenTripShare('${def}')">${ic('link',16)} ${mine.length>1?'יצירה והצגה של קוד הזמנה':'קוד הזמנה ל"'+esc(mine[0].name)+'"'}</button>
+        <p class="mini-note" style="margin-top:8px">יוצרים קוד, שולחים לחבר — הוא מזין אותו למטה ומצטרף בדיוק לאותו טיול.</p>
+      </div><hr class="hr">`;
+    })():''}
     ${live?`
     <div class="field"><label>הצטרפות לטיול בקוד הזמנה <span class="demo-tag" style="background:var(--accent-soft);color:var(--accent-ink)">☁ ענן</span></label>
       <div style="display:flex;gap:8px">
@@ -4326,17 +4367,6 @@ async function openCloudShare(tripId){
     <p style="margin:5px 0 0;font-size:12.5px;color:var(--ink2)">כל מי שמוזמן רואה את אותו טיול בדיוק. עריכה אצל אחד — מופיעה אצל כולם ${CloudSync.realtimeOn?'מיידית (⚡ Realtime)':'תוך שניות'}.</p>
   </div>`;
   if(isOwner){
-    body+=`<div class="field"><label>הזמנת משתתף לפי אימייל</label>
-      <div style="display:flex;gap:8px">
-        <input class="inp" type="email" id="cs-email" placeholder="friend@example.com" style="direction:ltr;flex:1">
-        <select class="inp" id="cs-role" style="width:96px;flex:none">
-          <option value="edit">עריכה</option><option value="view">צפייה</option>
-        </select>
-      </div>
-      <button class="btn btn-primary btn-block" style="margin-top:10px" onclick="sendInvite('${tripId}')">${ic('plus',16)} שליחת הזמנה</button>
-      <p class="mini-note" style="margin-top:8px">המוזמן נרשם לאפליקציה עם האימייל הזה — והטיול מופיע לו אוטומטית.</p></div><hr class="hr">`;
-  }
-  if(isOwner){
     body+=`<div class="section-label" style="margin-top:2px">${ic('link',14)} קוד הזמנה</div>
     <div class="card pad" style="margin-bottom:14px">`;
     if(codeRow){
@@ -4358,6 +4388,17 @@ async function openCloudShare(tripId){
       <p class="mini-note" style="margin-top:9px">שולחים את הקוד למי שרוצים; הוא מזין אותו ב"הצטרפות בקוד" ומצטרף לטיול הזה. תוקף: 14 יום או עד ביטול. לא ניתן להצטרף פעמיים.</p>`;
     }
     body+=`</div>`;
+  }
+  if(isOwner){
+    body+=`<div class="field"><label>הזמנת משתתף לפי אימייל</label>
+      <div style="display:flex;gap:8px">
+        <input class="inp" type="email" id="cs-email" placeholder="friend@example.com" style="direction:ltr;flex:1">
+        <select class="inp" id="cs-role" style="width:96px;flex:none">
+          <option value="edit">עריכה</option><option value="view">צפייה</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-block" style="margin-top:10px" onclick="sendInvite('${tripId}')">${ic('plus',16)} שליחת הזמנה</button>
+      <p class="mini-note" style="margin-top:8px">המוזמן נרשם לאפליקציה עם האימייל הזה — והטיול מופיע לו אוטומטית.</p></div><hr class="hr">`;
   }
   body+=`<div class="section-label" style="margin-top:2px">${ic('user',14)} משתתפים (${members.length+1})</div>
   <div class="card" style="padding:2px 14px">
@@ -4454,51 +4495,72 @@ async function revokeTripCode(tripId){
     openCloudShare(tripId);
   }catch(e){ toast('הביטול נכשל: '+e.message); }
 }
-Object.assign(window,{newTripCode, copyTripCode, shareTripCode, revokeTripCode});
+function hubOpenTripShare(defId){
+  const sel=document.getElementById('hub-trip');
+  openCloudShare(sel?sel.value:defId);
+}
+Object.assign(window,{newTripCode, copyTripCode, shareTripCode, revokeTripCode, hubOpenTripShare});
 </script>
 <script>
-/* ---- pull to refresh (native-feel, Supabase-aware) ---- */
+/* ---- pull to refresh (iOS-style arc, rAF-smooth) ---- */
 const PTR_TRIGGER=40;
 function ptrDamp(dy){ return Math.min(90, Math.round(dy*0.45)); }
+function ptrProgress(d){ return Math.max(0, Math.min(1, d/PTR_TRIGGER)); }
 (function(){
+  const C=56.6; /* 2πr, r=9 */
   const ptr=document.createElement('div');
   ptr.id='ptr';
-  ptr.innerHTML='<div class="ptr-ring"></div>';
+  ptr.innerHTML='<svg viewBox="0 0 24 24"><circle class="ptr-arc" cx="12" cy="12" r="9"/></svg>';
   document.body.appendChild(ptr);
-  let startY=null, pulling=false, dist=0, refreshing=false;
+  const arc=ptr.querySelector('.ptr-arc');
+  const svg=ptr.querySelector('svg');
+  let startY=null, pulling=false, dist=0, refreshing=false, armed=false, raf=0;
   const scr=()=>document.getElementById('screen');
+  function paint(){
+    raf=0;
+    const p=ptrProgress(dist);
+    ptr.style.transform='translate(-50%,'+Math.round(dist*0.9-58)+'px) scale('+(0.6+0.4*Math.min(1,p*1.15)).toFixed(3)+')';
+    ptr.style.opacity=String(Math.min(1, p*1.6).toFixed(2));
+    arc.style.strokeDashoffset=(C*(1-0.82*p)).toFixed(1);
+    svg.style.transform='rotate('+Math.round(dist*2.4)+'deg)';
+    const s=scr();
+    if(s) s.style.transform=dist?('translateY('+Math.min(54, Math.round(dist*0.55))+'px)'):'';
+  }
   function setPull(d){
     dist=d;
-    ptr.style.transform='translate(-50%,'+(d-52)+'px)';
-    ptr.style.opacity=String(Math.min(1, d/38));
-    const ring=ptr.querySelector('.ptr-ring');
-    if(ring) ring.style.transform='rotate('+(d*4)+'deg)';
-    const s=scr();
-    if(s) s.style.transform=d?('translateY('+Math.min(54, Math.round(d*0.55))+'px)'):'';
+    const nowArmed=d>=PTR_TRIGGER;
+    if(nowArmed && !armed){ armed=true; haptic(); }
+    if(!nowArmed) armed=false;
+    if(!raf) raf=requestAnimationFrame(paint);
   }
   function settle(){
+    if(raf){ cancelAnimationFrame(raf); raf=0; }
     const s=scr();
     if(s){
-      s.style.transition='transform .28s cubic-bezier(.2,.8,.3,1)';
+      s.style.transition='transform .3s cubic-bezier(.2,.8,.3,1)';
       s.style.transform='';
-      setTimeout(()=>{ const n=scr(); if(n) n.style.transition=''; }, 320);
+      setTimeout(()=>{ const n=scr(); if(n) n.style.transition=''; }, 340);
     }
     ptr.classList.remove('spin');
-    ptr.style.transition='transform .25s, opacity .25s';
-    ptr.style.transform='translate(-50%,-60px)';
+    ptr.style.transition='transform .34s cubic-bezier(.22,.9,.3,1.14), opacity .22s';
+    ptr.style.transform='translate(-50%,-64px) scale(.6)';
     ptr.style.opacity='0';
-    setTimeout(()=>{ ptr.style.transition=''; const r=ptr.querySelector('.ptr-ring'); if(r) r.style.transform=''; }, 280);
-    startY=null; pulling=false; dist=0;
+    setTimeout(()=>{
+      ptr.style.transition='';
+      arc.style.strokeDashoffset=String(C);
+      svg.style.transform='';
+    }, 360);
+    startY=null; pulling=false; dist=0; armed=false;
   }
   async function doRefresh(){
     refreshing=true;
-    ptr.classList.add('spin');
-    ptr.style.transition='transform .18s';
-    ptr.style.transform='translate(-50%,10px)';
+    ptr.style.transition='transform .2s cubic-bezier(.2,.8,.3,1)';
+    ptr.style.transform='translate(-50%,12px) scale(1)';
     ptr.style.opacity='1';
+    ptr.classList.add('spin');
     const s=scr();
-    if(s){ s.style.transition='transform .18s'; s.style.transform='translateY(46px)'; }
-    const minSpin=new Promise(r=>setTimeout(r,650));
+    if(s){ s.style.transition='transform .2s'; s.style.transform='translateY(46px)'; }
+    const minSpin=new Promise(r=>setTimeout(r,700));
     try{
       if(typeof CloudSync!=='undefined' && CloudSync.active()){
         await Promise.all([CloudSync.tick(), CloudSync.pullState().catch(()=>{}), minSpin]);
@@ -4506,6 +4568,12 @@ function ptrDamp(dy){ return Math.min(90, Math.round(dy*0.45)); }
         await minSpin;
       }
     }catch(e){}
+    /* completion tick: close the circle for a beat, then spring away */
+    ptr.classList.remove('spin');
+    arc.style.transition='stroke-dashoffset .16s';
+    arc.style.strokeDashoffset='0';
+    await new Promise(r=>setTimeout(r,170));
+    arc.style.transition='';
     refreshing=false;
     settle();
     haptic();

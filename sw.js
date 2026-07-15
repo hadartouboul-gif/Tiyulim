@@ -1,5 +1,5 @@
 /* טיולים — service worker: network-first (עדכונים זורמים), נפילה למטמון (עבודה אופליין) */
-const CACHE='tiyulim-v25';
+const CACHE='tiyulim-v27';
 self.addEventListener('install',e=>{
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png']).catch(()=>{})));
