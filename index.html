@@ -1296,12 +1296,15 @@ function saveTripForm(id){
     cover: sel? +sel.dataset.i : 0,
     notes:document.getElementById('tf-notes').value
   };
-  if(id){ Object.assign(tripById(id),data); }
-  else{
-    const t=Object.assign(newTripObj(),data);
-    S.trips.unshift(t); S.activeTripId=t.id;
-  }
+  if(id){ Object.assign(tripById(id),data); save('נשמר'); closeSheet(); render(); return; }
+  const t=Object.assign(newTripObj(),data);
+  S.trips.unshift(t); S.activeTripId=t.id;
   save('נשמר'); closeSheet(); render();
+  if(typeof CloudSync!=='undefined' && CloudSync.active()){
+    CloudSync.adoptTrip(t).then(dbId=>{
+      if(dbId){ save(); toast('☁ הטיול נשמר בענן ✓'); render(); }
+    }).catch(()=>{ /* השגיאה כבר הוצגה ותועדה ב-adoptTrip; יישלח שוב אוטומטית */ });
+  }
 }
 function toggleTheme(){
   S.settings.theme = S.settings.theme==='dark'?'light':'dark';
@@ -2002,7 +2005,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.8 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.9 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2245,7 +2248,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 2.8</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 2.9</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -4007,11 +4010,29 @@ const Auth={
 const CloudAPI={
   async req(method, path, body, extra){
     const b=sbBase(); if(!b) throw new Error('no supabase');
+    const hadSession=!!Auth.session;
     await Auth.ensureFresh();
-    const tok=Auth.token()||b.key;
-    const r=await fetch(b.url+'/rest/v1/'+path,{
-      method, headers:Object.assign({'apikey':b.key,'Authorization':'Bearer '+tok,'Content-Type':'application/json'},extra||{}),
-      body:body!==undefined?JSON.stringify(body):undefined});
+    if(hadSession && !Auth.session){
+      const e=new Error('הסשן פג ורענון הטוקן נכשל — נדרשת התחברות מחדש');
+      e.status=401;
+      console.error('[Supabase auth] session refresh failed before', method, '/'+path);
+      if(!window.__authExpiredAt || Date.now()-window.__authExpiredAt>60000){
+        window.__authExpiredAt=Date.now();
+        toast('פג תוקף ההתחברות — התחבר מחדש'); render();
+      }
+      throw e;
+    }
+    const tok=Auth.token();
+    if(!tok){ const e=new Error('לא מחובר לחשבון'); e.status=401; throw e; }
+    let r;
+    try{
+      r=await fetch(b.url+'/rest/v1/'+path,{
+        method, headers:Object.assign({'apikey':b.key,'Authorization':'Bearer '+tok,'Content-Type':'application/json'},extra||{}),
+        body:body!==undefined?JSON.stringify(body):undefined});
+    }catch(e){
+      console.error('[Supabase network]', method, '/'+path, e);
+      throw e;
+    }
     if(r.status===204) return null;
     const d=await r.json().catch(()=>null);
     if(!r.ok){
@@ -4026,7 +4047,10 @@ const CloudAPI={
   },
   listTrips(){ return this.req('GET','trips?select=id,owner,rev,updated_at,payload'); },
   getTrip(id){ return this.req('GET','trips?id=eq.'+id+'&select=id,owner,rev,payload'); },
-  insertTrip(payload){ return this.req('POST','trips',[{payload,rev:1,updated_by:Auth.user().id}],{'Prefer':'return=representation'}); },
+  insertTrip(payload){
+    const uid=Auth.user().id;
+    return this.req('POST','trips',[{owner:uid, payload, rev:1, updated_by:uid}],{'Prefer':'return=representation'});
+  },
   updateTrip(id,rev,payload){
     return this.req('PATCH','trips?id=eq.'+id, {payload,rev,updated_by:Auth.user().id, updated_at:new Date().toISOString()});
   },
@@ -4243,6 +4267,44 @@ const CloudSync={
       }
     }catch(e){}
   },
+  async adoptTrip(t){
+    if(!this.active() || !t || t.cloud) return t&&t.cloud? t.cloud.id : null;
+    const uid=Auth.user().id;
+    delete t.share;
+    const sent={owner:uid, rev:1, payload:cloudPayload(t)};
+    console.log('[trips insert] sending', {tripName:t.name, owner:uid, payloadBytes:JSON.stringify(sent.payload).length});
+    let rows;
+    try{
+      rows=await CloudAPI.insertTrip(sent.payload);
+    }catch(e){
+      this.lastMigrateError=e;
+      console.error('[trips insert] FAILED', {status:e.status, code:e.code, message:e.message, detail:e.detail, sentOwner:uid});
+      toast('שמירת הטיול בענן נכשלה: '+sbErrorHe(e));
+      if(sbIsSchemaError(e)) openCloudDoctor();
+      throw e;
+    }
+    const row=rows && rows[0];
+    if(!row || !row.id){
+      const e=new Error('Supabase לא החזיר מזהה שורה');
+      console.error('[trips insert] no id returned', rows);
+      toast('שמירת הטיול בענן נכשלה: לא התקבל מזהה');
+      throw e;
+    }
+    t.cloud={id:row.id, rev:row.rev||1, role:'owner', owner:row.owner||uid, pushedKeys:[]};
+    this.lastHash[row.id]=cloudFingerprint(t);
+    this.setStatus(row.id,'synced');
+    console.log('[trips insert] ok — db id', row.id, 'owner', t.cloud.owner);
+    /* read-back verification under RLS */
+    try{
+      const chk=await CloudAPI.getTrip(row.id);
+      if(chk && chk.length) console.log('[trips verify] row visible under RLS ✓');
+      else{
+        console.error('[trips verify] inserted but NOT readable — trips_select policy missing?');
+        toast('הטיול נכתב לענן אך אינו נקרא חזרה — בדוק policy בשם trips_select (אבחון ענן)');
+      }
+    }catch(e){ console.error('[trips verify]', e); }
+    return row.id;
+  },
   async migrateLocal(){
     const locals=S.trips.filter(t=>!(t.cloud&&t.cloud.id));
     if(!locals.length) return 0;
@@ -4250,15 +4312,10 @@ const CloudSync={
     let n=0;
     for(const t of locals){
       try{
-        delete t.share;
-        const rows=await CloudAPI.insertTrip(cloudPayload(t));
-        const row=rows&&rows[0]; if(!row) continue;
-        t.cloud={id:row.id, rev:row.rev||1, role:'owner', owner:Auth.user().id, pushedKeys:[]};
+        await this.adoptTrip(t);
         await this.pushBlobs(t);
-        this.lastHash[row.id]=cloudFingerprint(t);
-        this.setStatus(row.id,'synced');
         n++;
-      }catch(e){ console.error('[migrate]',e); this.lastMigrateError=e; }
+      }catch(e){ this.lastMigrateError=e; }
     }
     await this.pushState();
     save(); render();
@@ -4456,6 +4513,12 @@ async function cloudDoctor(){
   if(Auth.session){
     for(const [tbl,col] of [['trips','id'],['trip_members','trip_id'],['trip_invites','trip_id'],['blobs','key'],['user_state','user_id'],['trip_codes','code']])
       await probe('טבלת '+tbl, ()=>CloudAPI.req('GET',tbl+'?select='+col+'&limit=1'));
+    await probe('כתיבה לטבלת trips (insert)', async()=>{
+      const rows=await CloudAPI.req('POST','trips',[{owner:Auth.user().id, rev:1, payload:{v:0, probe:true}, updated_by:Auth.user().id}],{'Prefer':'return=representation'});
+      const id=rows&&rows[0]&&rows[0].id;
+      if(!id) throw new Error('insert לא החזיר מזהה');
+      try{ await CloudAPI.req('DELETE','trips?id=eq.'+id); }catch(e){}
+    });
     await probe('פונקציית redeem_trip_code', async()=>{
       const r=await CloudAPI.req('POST','rpc/redeem_trip_code',{p_code:'________'});
       if(!(r&&r.status)) throw new Error('תשובה לא צפויה');
