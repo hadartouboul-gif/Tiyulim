@@ -1300,10 +1300,13 @@ function saveTripForm(id){
   const t=Object.assign(newTripObj(),data);
   S.trips.unshift(t); S.activeTripId=t.id;
   save('נשמר'); closeSheet(); render();
-  if(typeof CloudSync!=='undefined' && CloudSync.active()){
+  console.log('[TRIP-CREATE 1/6] טיול נוצר מקומית', {localId:t.id, name:t.name});
+  if(typeof CloudSync!=='undefined'){
     CloudSync.adoptTrip(t).then(dbId=>{
       if(dbId){ save(); toast('☁ הטיול נשמר בענן ✓'); render(); }
-    }).catch(()=>{ /* השגיאה כבר הוצגה ותועדה ב-adoptTrip; יישלח שוב אוטומטית */ });
+    }).catch(()=>{ /* מתועד ומוצג ב-adoptTrip; יישלח שוב אוטומטית אחרי תיקון */ });
+  }else{
+    console.warn('[TRIP-CREATE ✗] CloudSync לא נטען בכלל');
   }
 }
 function toggleTheme(){
@@ -2005,7 +2008,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.9 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.0 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2248,7 +2251,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 2.9</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 3.0</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -3320,9 +3323,13 @@ loadState();
    ============================================================ */
 const SYNC_CONFIG={ SUPABASE_URL:'https://pcbbbfwbhilqycadzztm.supabase.co', SUPABASE_ANON_KEY:'sb_publishable_sOK2c2HuqE1W_Fu_V23nfQ_2Fv_sJv2' };
 function sbConf(){
+  /* הפרטים המוטמעים הם המקור היחיד כשהם קיימים — override ישן מההגדרות לא יכול להסתיר אותם */
+  if(SYNC_CONFIG.SUPABASE_URL && SYNC_CONFIG.SUPABASE_ANON_KEY){
+    return { url:SYNC_CONFIG.SUPABASE_URL.trim().replace(/\/+$/,''), key:SYNC_CONFIG.SUPABASE_ANON_KEY.trim() };
+  }
   const c=(S.settings&&S.settings.sb)||{};
-  const url=String(c.url||SYNC_CONFIG.SUPABASE_URL||'').trim().replace(/\/+$/,'');
-  const key=String(c.key||SYNC_CONFIG.SUPABASE_ANON_KEY||'').trim();
+  const url=String(c.url||'').trim().replace(/\/+$/,'');
+  const key=String(c.key||'').trim();
   return (url&&key)?{url,key}:null;
 }
 const SupabaseTransport={
@@ -3965,14 +3972,17 @@ const Auth={
     if(!d || !d.access_token) return false;
     this.session={access_token:d.access_token, refresh_token:d.refresh_token,
       expires_at:(Date.now()/1000|0)+(d.expires_in||3600), user:d.user};
-    this.persistSession(); return true;
+    this.persistSession();
+    console.log('[AUTH] session set — auth.uid():', d.user&&d.user.id, '| email:', d.user&&d.user.email);
+    return true;
   },
   async _call(path, body, useToken){
     const b=sbBase(); if(!b) throw new Error('סנכרון ענן לא מוגדר');
     const r=await fetch(b.url+'/auth/v1/'+path,{
       method:'POST',
-      headers:{'apikey':b.key,'Content-Type':'application/json',
-        ...(useToken&&this.token()?{'Authorization':'Bearer '+this.token()}:{'Authorization':'Bearer '+b.key})},
+      headers:Object.assign(
+        {'apikey':b.key,'Content-Type':'application/json'},
+        (useToken&&this.token())?{'Authorization':'Bearer '+this.token()}:{}),
       body:JSON.stringify(body||{})});
     const d=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(d.msg||d.error_description||d.message||('HTTP '+r.status));
@@ -4248,7 +4258,8 @@ const CloudSync={
   _stateHash:null,
   async pushState(){
     try{
-      const payload={settings:S.settings, activeTripId:S.activeTripId, docs:S.docs.filter(d=>!d.tripId)};
+      const cleanSettings=Object.assign({},S.settings); delete cleanSettings.sb;
+      const payload={settings:cleanSettings, activeTripId:S.activeTripId, docs:S.docs.filter(d=>!d.tripId)};
       const h=hsh(JSON.stringify(payload));
       if(h===this._stateHash) return;
       await CloudAPI.putState(payload);
@@ -4260,7 +4271,7 @@ const CloudSync={
       const rows=await CloudAPI.getState();
       if(rows&&rows.length&&rows[0].payload){
         const p=rows[0].payload;
-        if(p.settings){ p.settings.sb=S.settings.sb; S.settings=Object.assign(S.settings,p.settings); }
+        if(p.settings){ delete p.settings.sb; S.settings=Object.assign(S.settings,p.settings); }
         if(p.activeTripId) S.activeTripId=p.activeTripId;
         if(Array.isArray(p.docs)) S.docs=S.docs.filter(d=>d.tripId).concat(p.docs);
         this._stateHash=hsh(JSON.stringify({settings:S.settings,activeTripId:S.activeTripId,docs:S.docs.filter(d=>!d.tripId)}));
@@ -4268,41 +4279,64 @@ const CloudSync={
     }catch(e){}
   },
   async adoptTrip(t){
-    if(!this.active() || !t || t.cloud) return t&&t.cloud? t.cloud.id : null;
-    const uid=Auth.user().id;
+    if(t && t.cloud) return t.cloud.id;
+    const b=sbBase();
+    const uid=Auth.user()&&Auth.user().id;
+    console.log('[TRIP-CREATE 2/6] בדיקת ענן', {
+      sbConfigured: !!b,
+      baseUrl: b? b.url : '(אין)',
+      keyPrefix: b? b.key.slice(0,18)+'…' : '(אין)',
+      hasSession: !!Auth.session,
+      authUid: uid||null,
+      email: Auth.email()||null
+    });
+    if(!this.active() || !t){
+      const reason=!b?'Supabase לא מוגדר (sbBase=null)':(!Auth.session?'אין סשן מחובר (Auth.session=null)':'טיול חסר');
+      console.warn('[TRIP-CREATE ✗] לא נשלח INSERT — הסיבה:', reason);
+      if(!Auth.session) toast('הטיול נשמר במכשיר בלבד — התחבר כדי לשמור בענן');
+      return null;
+    }
     delete t.share;
-    const sent={owner:uid, rev:1, payload:cloudPayload(t)};
-    console.log('[trips insert] sending', {tripName:t.name, owner:uid, payloadBytes:JSON.stringify(sent.payload).length});
+    const rowToSend={owner:uid, rev:1, updated_by:uid, payload:cloudPayload(t)};
+    console.log('[TRIP-CREATE 3/6] payload → Supabase (POST /rest/v1/trips):', rowToSend);
     let rows;
     try{
-      rows=await CloudAPI.insertTrip(sent.payload);
+      rows=await CloudAPI.insertTrip(rowToSend.payload);
     }catch(e){
       this.lastMigrateError=e;
-      console.error('[trips insert] FAILED', {status:e.status, code:e.code, message:e.message, detail:e.detail, sentOwner:uid});
+      const full={
+        message:e.message, code:e.code||null,
+        details:(e.detail&&e.detail.details)||null,
+        hint:(e.detail&&e.detail.hint)||null,
+        status:e.status||null,
+        rawBody:e.detail||null,
+        payloadSent:rowToSend, authUid:uid
+      };
+      console.error('[TRIP-CREATE ✗] INSERT נכשל — אובייקט השגיאה המלא:', full);
       toast('שמירת הטיול בענן נכשלה: '+sbErrorHe(e));
       if(sbIsSchemaError(e)) openCloudDoctor();
       throw e;
     }
+    console.log('[TRIP-CREATE 4/6] תשובה ← Supabase:', rows);
     const row=rows && rows[0];
     if(!row || !row.id){
       const e=new Error('Supabase לא החזיר מזהה שורה');
-      console.error('[trips insert] no id returned', rows);
+      console.error('[TRIP-CREATE ✗] אין id בתשובה:', rows);
       toast('שמירת הטיול בענן נכשלה: לא התקבל מזהה');
       throw e;
     }
     t.cloud={id:row.id, rev:row.rev||1, role:'owner', owner:row.owner||uid, pushedKeys:[]};
     this.lastHash[row.id]=cloudFingerprint(t);
     this.setStatus(row.id,'synced');
-    console.log('[trips insert] ok — db id', row.id, 'owner', t.cloud.owner);
-    /* read-back verification under RLS */
+    console.log('[TRIP-CREATE 5/6] נשמר באפליקציה — db id:', row.id, '| owner בשורה:', row.owner);
     try{
       const chk=await CloudAPI.getTrip(row.id);
-      if(chk && chk.length) console.log('[trips verify] row visible under RLS ✓');
+      if(chk && chk.length) console.log('[TRIP-CREATE 6/6] אימות-קריאה תחת RLS ✓ השורה קיימת ונקראת');
       else{
-        console.error('[trips verify] inserted but NOT readable — trips_select policy missing?');
-        toast('הטיול נכתב לענן אך אינו נקרא חזרה — בדוק policy בשם trips_select (אבחון ענן)');
+        console.error('[TRIP-CREATE ✗] נכתב אך לא נקרא חזרה — policy בשם trips_select חסר?');
+        toast('הטיול נכתב לענן אך אינו נקרא חזרה — בדוק trips_select');
       }
-    }catch(e){ console.error('[trips verify]', e); }
+    }catch(e){ console.error('[TRIP-CREATE ✗] אימות-קריאה נכשל:', e); }
     return row.id;
   },
   async migrateLocal(){
@@ -4324,6 +4358,10 @@ const CloudSync={
   }
 };
 async function cloudBoot(){
+  if(S.settings && S.settings.sb && SYNC_CONFIG.SUPABASE_URL){
+    console.warn('[CONFIG] מתעלם מהגדרת Supabase ישנה שנשמרה במכשיר:', S.settings.sb.url||'(ריק)', '→ משתמש בכתובת המוטמעת:', SYNC_CONFIG.SUPABASE_URL);
+    delete S.settings.sb;
+  }
   if(!sbBase()) return false;
   Auth.loadCached();
   if(!(await Auth.ensureFresh())) return false;
