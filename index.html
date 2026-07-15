@@ -2002,7 +2002,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.7 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 2.8 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2245,7 +2245,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 2.7</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 2.8</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -3598,8 +3598,10 @@ function openShareSheet(tripId){
     toast('מעלה את הטיול לענן…');
     CloudSync.migrateLocal().then(()=>{
       const t2=tripById(tripId);
-      if(t2 && t2.cloud) openCloudShare(tripId);
-      else toast('ההעלאה נכשלה — בדוק חיבור ונסה שוב');
+      if(t2 && t2.cloud){ openCloudShare(tripId); return; }
+      const err=CloudSync.lastMigrateError;
+      toast('העלאת הטיול נכשלה: '+(err?sbErrorHe(err):'סיבה לא ידועה'));
+      if(err && sbIsSchemaError(err)) openCloudDoctor();
     });
     return;
   }
@@ -3725,8 +3727,9 @@ async function joinByCode(){
   let r;
   try{ r=await CloudAPI.redeemCode(code); }
   catch(e){
-    if(/redeem_trip_code/i.test(e.message||'')) toast('חסר עדכון בשרת — הרץ את ה-SQL של קודי ההזמנה');
-    else toast(CloudSync.isOffline(e)?'אין חיבור לרשת':'ההצטרפות נכשלה: '+e.message);
+    console.error('[joinByCode]',e);
+    toast('ההצטרפות נכשלה: '+sbErrorHe(e));
+    if(sbIsSchemaError(e)){ closeSheet(); openCloudDoctor(); }
     return;
   }
   const st=r && r.status;
@@ -4011,7 +4014,14 @@ const CloudAPI={
       body:body!==undefined?JSON.stringify(body):undefined});
     if(r.status===204) return null;
     const d=await r.json().catch(()=>null);
-    if(!r.ok) { const e=new Error((d&&(d.message||d.hint))||('HTTP '+r.status)); e.status=r.status; throw e; }
+    if(!r.ok){
+      console.error('[Supabase]', method, '/'+path, r.status, d||'');
+      const e=new Error((d&&(d.message||d.hint))||('HTTP '+r.status));
+      e.status=r.status;
+      e.code=d&&d.code;
+      e.detail=d;
+      throw e;
+    }
     return d;
   },
   listTrips(){ return this.req('GET','trips?select=id,owner,rev,updated_at,payload'); },
@@ -4043,7 +4053,7 @@ function cloudPayload(t){ return {v:3, trip:stripCloud(t), docs:docsForTrip(t.id
 function stripCloud(t){ const c=JSON.parse(JSON.stringify(t)); delete c.cloud; delete c.share; return c; }
 function cloudFingerprint(t){ return hsh(JSON.stringify(stripCloud(t))+JSON.stringify(docsForTrip(t.id))); }
 const CloudSync={
-  pollMs:3000, timer:null, busy:false, pushT:null, lastHash:{}, status:{}, realtimeOn:false, started:false,
+  pollMs:3000, timer:null, busy:false, pushT:null, lastHash:{}, status:{}, realtimeOn:false, started:false, lastMigrateError:null,
   active(){ return !!(sbBase() && Auth.session); },
   cloudTrips(){ return S.trips.filter(t=>t.cloud && t.cloud.id); },
   label(id){
@@ -4248,7 +4258,7 @@ const CloudSync={
         this.lastHash[row.id]=cloudFingerprint(t);
         this.setStatus(row.id,'synced');
         n++;
-      }catch(e){ console.error('migrate',e); }
+      }catch(e){ console.error('[migrate]',e); this.lastMigrateError=e; }
     }
     await this.pushState();
     save(); render();
@@ -4267,8 +4277,230 @@ async function cloudBoot(){
     CloudSync.start();
     render();
     return true;
-  }catch(e){ console.error('cloudBoot',e); return false; }
+  }catch(e){
+    console.error('[cloudBoot]',e);
+    if(sbIsSchemaError(e) && !window.__schemaWarned){
+      window.__schemaWarned=true;
+      toast('התקנת הענן לא הושלמה — פתח "אבחון ענן" בחשבון');
+    }
+    return false;
+  }
 }
+const CLOUD_SQL=`-- ================================================
+-- טיולים · התקנת ענן מלאה (בטוח להריץ שוב ושוב)
+-- מדביקים ב-Supabase → SQL Editor → Run
+-- ================================================
+create extension if not exists pgcrypto;
+
+create table if not exists trips (
+  id uuid primary key default gen_random_uuid(),
+  owner uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  rev bigint not null default 1,
+  payload jsonb not null,
+  updated_by uuid,
+  updated_at timestamptz not null default now()
+);
+create table if not exists trip_members (
+  trip_id uuid not null references trips(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  email text,
+  role text not null default 'edit' check (role in ('edit','view')),
+  primary key (trip_id, user_id)
+);
+create table if not exists trip_invites (
+  trip_id uuid not null references trips(id) on delete cascade,
+  email text not null,
+  role text not null default 'edit' check (role in ('edit','view')),
+  invited_by uuid default auth.uid(),
+  primary key (trip_id, email)
+);
+create table if not exists blobs (
+  key text primary key,
+  owner uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  trip_id uuid references trips(id) on delete cascade,
+  value text not null,
+  updated_at timestamptz default now()
+);
+create table if not exists user_state (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  payload jsonb not null,
+  updated_at timestamptz default now()
+);
+create table if not exists trip_codes (
+  code text primary key,
+  trip_id uuid not null references trips(id) on delete cascade,
+  role text not null default 'edit' check (role in ('edit','view')),
+  created_by uuid not null default auth.uid(),
+  expires_at timestamptz not null default now() + interval '14 days',
+  revoked boolean not null default false
+);
+
+alter table trips enable row level security;
+alter table trip_members enable row level security;
+alter table trip_invites enable row level security;
+alter table blobs enable row level security;
+alter table user_state enable row level security;
+alter table trip_codes enable row level security;
+
+drop policy if exists trips_select on trips;
+create policy trips_select on trips for select using (
+  owner = auth.uid() or exists (select 1 from trip_members m where m.trip_id = id and m.user_id = auth.uid()));
+drop policy if exists trips_insert on trips;
+create policy trips_insert on trips for insert with check (owner = auth.uid());
+drop policy if exists trips_update on trips;
+create policy trips_update on trips for update using (
+  owner = auth.uid() or exists (select 1 from trip_members m where m.trip_id = id and m.user_id = auth.uid() and m.role = 'edit'));
+drop policy if exists trips_delete on trips;
+create policy trips_delete on trips for delete using (owner = auth.uid());
+
+drop policy if exists members_select on trip_members;
+create policy members_select on trip_members for select using (
+  user_id = auth.uid() or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
+drop policy if exists members_insert on trip_members;
+create policy members_insert on trip_members for insert with check (
+  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid())
+  or (user_id = auth.uid() and exists (
+      select 1 from trip_invites i where i.trip_id = trip_id and lower(i.email) = lower(auth.email()))));
+drop policy if exists members_update on trip_members;
+create policy members_update on trip_members for update using (
+  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
+drop policy if exists members_delete on trip_members;
+create policy members_delete on trip_members for delete using (
+  user_id = auth.uid() or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
+
+drop policy if exists invites_select on trip_invites;
+create policy invites_select on trip_invites for select using (
+  lower(email) = lower(auth.email()) or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
+drop policy if exists invites_insert on trip_invites;
+create policy invites_insert on trip_invites for insert with check (
+  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
+drop policy if exists invites_delete on trip_invites;
+create policy invites_delete on trip_invites for delete using (
+  lower(email) = lower(auth.email()) or exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid()));
+
+drop policy if exists blobs_select on blobs;
+create policy blobs_select on blobs for select using (
+  owner = auth.uid() or (trip_id is not null and exists (
+    select 1 from trips t where t.id = trip_id and (t.owner = auth.uid()
+      or exists (select 1 from trip_members m where m.trip_id = t.id and m.user_id = auth.uid())))));
+drop policy if exists blobs_insert on blobs;
+create policy blobs_insert on blobs for insert with check (
+  owner = auth.uid() or (trip_id is not null and exists (
+    select 1 from trips t where t.id = trip_id and (t.owner = auth.uid()
+      or exists (select 1 from trip_members m where m.trip_id = t.id and m.user_id = auth.uid() and m.role = 'edit')))));
+drop policy if exists blobs_update on blobs;
+create policy blobs_update on blobs for update using (owner = auth.uid());
+drop policy if exists blobs_delete on blobs;
+create policy blobs_delete on blobs for delete using (owner = auth.uid());
+
+drop policy if exists state_all on user_state;
+create policy state_all on user_state for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists codes_owner_all on trip_codes;
+create policy codes_owner_all on trip_codes for all using (
+  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid())
+) with check (
+  exists (select 1 from trips t where t.id = trip_id and t.owner = auth.uid())
+);
+
+create or replace function redeem_trip_code(p_code text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare c record;
+begin
+  select * into c from trip_codes where code = upper(p_code);
+  if not found then return jsonb_build_object('status','invalid'); end if;
+  if c.revoked then return jsonb_build_object('status','revoked'); end if;
+  if c.expires_at <= now() then return jsonb_build_object('status','expired'); end if;
+  if exists (select 1 from trips t where t.id = c.trip_id and t.owner = auth.uid()) then
+    return jsonb_build_object('status','owner','trip_id',c.trip_id);
+  end if;
+  if exists (select 1 from trip_members m where m.trip_id = c.trip_id and m.user_id = auth.uid()) then
+    return jsonb_build_object('status','already','trip_id',c.trip_id,'role',c.role);
+  end if;
+  insert into trip_members(trip_id, user_id, email, role)
+  values (c.trip_id, auth.uid(), lower(auth.email()), c.role);
+  return jsonb_build_object('status','ok','trip_id',c.trip_id,'role',c.role);
+end $$;
+revoke execute on function redeem_trip_code(text) from anon, public;
+grant execute on function redeem_trip_code(text) to authenticated;
+
+do $$ begin
+  alter publication supabase_realtime add table trips;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table trip_members;
+exception when duplicate_object then null; end $$;`;
+function sbErrorHe(e){
+  const msg=String(e&&e.message||'');
+  if(e&&(e.name==='TypeError'||/failed to fetch|networkerror/i.test(msg))) return 'אין חיבור לרשת';
+  if((e&&(e.code==='42P01'||e.code==='PGRST205'))||/relation .* does not exist|could not find the table/i.test(msg))
+    return 'טבלה חסרה בענן — נדרשת הרצת סקריפט ההתקנה (פעם אחת)';
+  if((e&&e.code==='PGRST202')||/could not find the function/i.test(msg))
+    return 'פונקציית ההצטרפות חסרה בענן — נדרשת הרצת סקריפט ההתקנה';
+  if((e&&e.status===401)||/jwt|token/i.test(msg)) return 'פג תוקף ההתחברות — התנתק והתחבר מחדש';
+  if((e&&e.status===403)||(e&&e.code==='42501')||/permission|policy|row-level/i.test(msg)) return 'אין הרשאה (RLS) לפעולה הזו';
+  return 'שגיאת ענן: '+msg;
+}
+function sbIsSchemaError(e){ const he=sbErrorHe(e); return he.includes('סקריפט ההתקנה'); }
+async function cloudDoctor(){
+  const out=[];
+  const probe=async(label, fn)=>{
+    try{ await fn(); out.push({label, st:'ok'}); }
+    catch(e){
+      console.error('[doctor]', label, e);
+      const he=sbErrorHe(e);
+      out.push({label, st: he.includes('סקריפט')?'missing':(he.includes('הרשאה')?'perm':(he.includes('רשת')?'net':(he.includes('התחבר')?'auth':'err'))), he});
+    }
+  };
+  out.push({label:'התחברות לחשבון', st:Auth.session?'ok':'auth'});
+  if(Auth.session){
+    for(const [tbl,col] of [['trips','id'],['trip_members','trip_id'],['trip_invites','trip_id'],['blobs','key'],['user_state','user_id'],['trip_codes','code']])
+      await probe('טבלת '+tbl, ()=>CloudAPI.req('GET',tbl+'?select='+col+'&limit=1'));
+    await probe('פונקציית redeem_trip_code', async()=>{
+      const r=await CloudAPI.req('POST','rpc/redeem_trip_code',{p_code:'________'});
+      if(!(r&&r.status)) throw new Error('תשובה לא צפויה');
+    });
+  }
+  return out;
+}
+async function openCloudDoctor(){
+  openSheet('אבחון ענן', `<div id="docBody"><div class="empty" style="padding:26px 0">בודק את החיבור והטבלאות…</div></div>`);
+  const res=await cloudDoctor();
+  const el=document.getElementById('docBody'); if(!el) return;
+  const pill=r=>r.st==='ok'?'<span class="status-pill st-done">תקין</span>'
+    :r.st==='missing'?'<span class="status-pill st-cancelled">חסר</span>'
+    :r.st==='perm'?'<span class="status-pill st-cancelled">אין הרשאה</span>'
+    :r.st==='auth'?'<span class="status-pill st-upcoming">נדרשת התחברות</span>'
+    :r.st==='net'?'<span class="status-pill st-upcoming">אין רשת</span>'
+    :'<span class="status-pill st-cancelled">שגיאה</span>';
+  const missing=res.some(r=>r.st==='missing');
+  const perm=res.some(r=>r.st==='perm');
+  el.innerHTML=`
+    <div class="card" style="padding:2px 14px;margin-bottom:14px">
+      ${res.map(r=>`<div class="list-row" style="cursor:default">
+        <div class="lr-body"><div class="lr-title" style="font-size:13.5px">${r.label}</div>${r.he&&r.st!=='ok'?`<div class="lr-sub">${r.he}</div>`:''}</div>
+        ${pill(r)}
+      </div>`).join('')}
+    </div>
+    ${missing?`
+      <div class="card pad" style="background:var(--amber-soft);border-color:transparent;margin-bottom:12px">
+        <b style="font-size:13.5px;color:var(--amber)">${ic('alert',15)} חסרה התקנה חד-פעמית בענן</b>
+        <p style="margin:5px 0 0;font-size:12.5px;color:var(--ink2)">העתק את הסקריפט, הדבק ב-Supabase ← SQL Editor ← Run (בטוח להריץ שוב), ואז חזור לכאן ל"בדיקה מחדש".</p>
+      </div>
+      <div class="field"><label>סקריפט התקנה מלא</label>
+        <textarea class="inp" readonly style="direction:ltr;font-family:ui-monospace,monospace;font-size:11px;min-height:170px">${esc(CLOUD_SQL)}</textarea></div>
+      <button class="btn btn-primary btn-block" onclick="copyCloudSQL()">${ic('copy',16)} העתקת הסקריפט</button>`
+    :perm?`<p class="mini-note">יש טבלאות אך חסרות הרשאות — הרץ שוב את סקריפט ההתקנה המלא (הוא מתקן גם policies).</p>
+      <button class="btn btn-primary btn-block" onclick="copyCloudSQL()">${ic('copy',16)} העתקת הסקריפט</button>`
+    :`<div class="card pad" style="background:var(--green-soft);border-color:transparent"><b style="color:var(--green);font-size:13.5px">${ic('check',15)} הכל תקין — שיתוף בקוד מוכן לעבודה</b></div>`}
+    <button class="btn btn-ghost btn-block" style="margin-top:10px" onclick="openCloudDoctor()">${ic('refresh',16)} בדיקה מחדש</button>`;
+}
+function copyCloudSQL(){
+  const done=()=>toast('הסקריפט הועתק ✓');
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(CLOUD_SQL).then(done).catch(()=>prompt('העתק:',CLOUD_SQL));
+  else prompt('העתק:',CLOUD_SQL);
+}
+Object.assign(window,{openCloudDoctor, copyCloudSQL});
 /* ==== END CLOUD CORE ==== */
 </script>
 <script>
@@ -4336,6 +4568,7 @@ function openAccountSheet(){
       <div style="font-size:12px;color:var(--ink2);margin-top:6px">${owned} טיולים שלך · ${shared} משותפים איתך · ${CloudSync.realtimeOn?'⚡ עדכונים חיים פעילים':'סנכרון כל '+Math.round(CloudSync.pollMs/1000)+' שניות'}</div>
     </div>
     <button class="btn btn-soft btn-block" onclick="CloudSync.tick(); toast('מסנכרן…')">${ic('refresh',16)} סנכרון עכשיו</button>
+    <button class="btn btn-ghost btn-block" style="margin-top:10px" onclick="closeSheet(); openCloudDoctor()">${ic('sliders',16)} אבחון ענן</button>
     <button class="btn btn-danger btn-block" style="margin-top:10px" onclick="doSignOut()">${ic('x',16)} התנתקות</button>
     <p class="mini-note">התנתקות משאירה עותק מקומי במכשיר (מטמון). התחברות מחדש טוענת הכל מהענן.</p>`);
 }
@@ -4353,13 +4586,13 @@ async function openCloudShare(tripId){
   let members=[],invites=[];
   try{ members=await CloudAPI.members(t.cloud.id)||[]; }catch(e){}
   if(isOwner){ try{ invites=await CloudAPI.invites(t.cloud.id)||[]; }catch(e){} }
-  let codeRow=null;
+  let codeRow=null, codeErr=null;
   if(isOwner){
     try{
       const cr=await CloudAPI.activeCode(t.cloud.id);
       codeRow=(cr&&cr[0])||null;
       if(codeRow && new Date(codeRow.expires_at) <= new Date()) codeRow=null;
-    }catch(e){}
+    }catch(e){ codeErr=e; console.error('[activeCode]',e); }
   }
   const el=document.getElementById('cs-body'); if(!el) return;
   let body=`<div class="card pad" style="background:var(--accent-soft);border-color:transparent;margin-bottom:14px">
@@ -4369,7 +4602,10 @@ async function openCloudShare(tripId){
   if(isOwner){
     body+=`<div class="section-label" style="margin-top:2px">${ic('link',14)} קוד הזמנה</div>
     <div class="card pad" style="margin-bottom:14px">`;
-    if(codeRow){
+    if(codeErr){
+      body+=`<div style="font-size:12.5px;color:var(--amber);font-weight:700">${ic('alert',14)} ${esc(sbErrorHe(codeErr))}</div>
+      <button class="btn btn-soft btn-block btn-sm" style="margin-top:10px" onclick="closeSheet(); openCloudDoctor()">${ic('sliders',15)} אבחון והתקנה</button>`;
+    }else if(codeRow){
       body+=`<div class="share-code" style="margin-top:2px">${codeRow.code.split('').map(c=>`<span>${c}</span>`).join('')}</div>
       <div style="text-align:center;font-size:12px;color:var(--ink2);margin:-4px 0 12px">הרשאת ${codeRow.role==='edit'?'עריכה':'צפייה'} · בתוקף עד ${fmtD(codeRow.expires_at.slice(0,10))}</div>
       <div class="row2">
@@ -4467,7 +4703,9 @@ async function newTripCode(tripId){
     toast('קוד הזמנה נוצר ✓');
     openCloudShare(tripId);
   }catch(e){
-    toast(/trip_codes/i.test(e.message||'')?'חסרה טבלת הקודים — הרץ את עדכון ה-SQL':'יצירת הקוד נכשלה: '+e.message);
+    console.error('[newTripCode]',e);
+    toast('יצירת הקוד נכשלה: '+sbErrorHe(e));
+    if(sbIsSchemaError(e)){ closeSheet(); openCloudDoctor(); }
   }
 }
 function copyTripCode(code){
