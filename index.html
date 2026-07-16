@@ -1277,7 +1277,8 @@ function openTripForm(id){
       </div></div>
     <div class="field"><label>הערות כלליות</label>
       <textarea class="inp" id="tf-notes" placeholder="ביטוח, ויזה, דברים לזכור…">${esc(v.notes)}</textarea></div>
-    <button class="btn btn-primary btn-block" onclick="saveTripForm('${t?t.id:''}')">${t?'שמירת שינויים':'יצירת הטיול'}</button>
+    <div id="tf-err" class="mini-note" style="color:var(--red);min-height:0;margin:0 0 8px"></div>
+    <button class="btn btn-primary btn-block" id="tf-save" onclick="saveTripForm('${t?t.id:''}')">${t?'שמירת שינויים':'יצירת הטיול'}</button>
   `);
 }
 window.__coverSel=0;
@@ -1298,17 +1299,42 @@ function saveTripForm(id){
   };
   if(id){ Object.assign(tripById(id),data); save('נשמר'); closeSheet(); render(); return; }
   const t=Object.assign(newTripObj(),data);
-  S.trips.unshift(t); S.activeTripId=t.id;
-  save('נשמר'); closeSheet(); render();
-  console.log('[TRIP-CREATE 1/6] טיול נוצר מקומית', {localId:t.id, name:t.name});
-  if(typeof CloudSync!=='undefined'){
-    CloudSync.adoptTrip(t).then(dbId=>{
-      if(dbId){ save(); toast('☁ הטיול נשמר בענן ✓'); render(); }
-    }).catch(()=>{ /* מתועד ומוצג ב-adoptTrip; יישלח שוב אוטומטית אחרי תיקון */ });
-  }else{
-    console.warn('[TRIP-CREATE ✗] CloudSync לא נטען בכלל');
+  console.log('[TRIP-CREATE 1/6] טיוטת טיול', {localId:t.id, name:t.name});
+  if(typeof CloudSync!=='undefined' && CloudSync.active()){
+    /* מחוברים: הענן קודם. אם ה-INSERT נכשל — לא מעמידים פנים שנשמר. */
+    const btn=document.getElementById('tf-save');
+    const errEl=document.getElementById('tf-err');
+    if(btn){ btn.disabled=true; btn.textContent='שומר בענן…'; }
+    if(errEl) errEl.textContent='';
+    window.__tfDraft=t;
+    return CloudSync.adoptTrip(t).then(()=>{
+      window.__tfDraft=null;
+      S.trips.unshift(t); S.activeTripId=t.id;
+      save(); closeSheet(); render();
+      toast('☁ הטיול נשמר בענן ✓');
+    }).catch(e=>{
+      if(btn){ btn.disabled=false; btn.textContent='יצירת הטיול'; }
+      const raw=String(e&&e.message||'שגיאה לא ידועה')+(e&&e.code?(' ['+e.code+']'):'');
+      if(errEl){
+        errEl.innerHTML='<b>Supabase:</b> '+esc(raw)+'<br>'+esc(sbErrorHe(e))
+          +' · <a style="color:var(--accent-ink);text-decoration:underline;cursor:pointer" onclick="closeSheet(); openCloudDoctor()">אבחון ותיקון</a>'
+          +'<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="saveTripLocalOnly()">שמירה במכשיר בלבד (ללא ענן)</button></div>';
+      }else{
+        toast('שמירת הטיול בענן נכשלה: '+sbErrorHe(e));
+      }
+    });
   }
+  S.trips.unshift(t); S.activeTripId=t.id;
+  save('נשמר במכשיר'); closeSheet(); render();
+  if(sbBase() && !Auth.session) toast('הטיול נשמר במכשיר בלבד — התחבר כדי לשמור בענן');
 }
+function saveTripLocalOnly(){
+  const t=window.__tfDraft; if(!t) return;
+  window.__tfDraft=null;
+  S.trips.unshift(t); S.activeTripId=t.id;
+  save('נשמר במכשיר בלבד'); closeSheet(); render();
+}
+Object.assign(window,{saveTripLocalOnly});
 function toggleTheme(){
   S.settings.theme = S.settings.theme==='dark'?'light':'dark';
   applyTheme(); save(); render();
@@ -2008,7 +2034,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.0 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2251,7 +2277,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 3.0</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 3.1</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -4313,8 +4339,6 @@ const CloudSync={
         payloadSent:rowToSend, authUid:uid
       };
       console.error('[TRIP-CREATE ✗] INSERT נכשל — אובייקט השגיאה המלא:', full);
-      toast('שמירת הטיול בענן נכשלה: '+sbErrorHe(e));
-      if(sbIsSchemaError(e)) openCloudDoctor();
       throw e;
     }
     console.log('[TRIP-CREATE 4/6] תשובה ← Supabase:', rows);
@@ -4528,6 +4552,8 @@ exception when duplicate_object then null; end $$;`;
 function sbErrorHe(e){
   const msg=String(e&&e.message||'');
   if(e&&(e.name==='TypeError'||/failed to fetch|networkerror/i.test(msg))) return 'אין חיבור לרשת';
+  if((e&&(e.code==='42703'||e.code==='PGRST204'))||/could not find the '.*' column|column .* does not exist/i.test(msg))
+    return 'עמודה חסרה בטבלה — הסכמה בענן לא תואמת לאפליקציה (אבחון ענן יציג תיקון מדויק)';
   if((e&&(e.code==='42P01'||e.code==='PGRST205'))||/relation .* does not exist|could not find the table/i.test(msg))
     return 'טבלה חסרה בענן — נדרשת הרצת סקריפט ההתקנה (פעם אחת)';
   if((e&&e.code==='PGRST202')||/could not find the function/i.test(msg))
@@ -4536,7 +4562,7 @@ function sbErrorHe(e){
   if((e&&e.status===403)||(e&&e.code==='42501')||/permission|policy|row-level/i.test(msg)) return 'אין הרשאה (RLS) לפעולה הזו';
   return 'שגיאת ענן: '+msg;
 }
-function sbIsSchemaError(e){ const he=sbErrorHe(e); return he.includes('סקריפט ההתקנה'); }
+function sbIsSchemaError(e){ const he=sbErrorHe(e); return he.includes('סקריפט ההתקנה')||he.includes('עמודה חסרה'); }
 async function cloudDoctor(){
   const out=[];
   const probe=async(label, fn)=>{
@@ -4544,13 +4570,28 @@ async function cloudDoctor(){
     catch(e){
       console.error('[doctor]', label, e);
       const he=sbErrorHe(e);
-      out.push({label, st: he.includes('סקריפט')?'missing':(he.includes('הרשאה')?'perm':(he.includes('רשת')?'net':(he.includes('התחבר')?'auth':'err'))), he});
+      out.push({label, st:(he.includes('סקריפט')||he.includes('עמודה חסרה'))?'missing':(he.includes('הרשאה')?'perm':(he.includes('רשת')?'net':(he.includes('התחבר')?'auth':'err'))), he});
     }
   };
   out.push({label:'התחברות לחשבון', st:Auth.session?'ok':'auth'});
   if(Auth.session){
-    for(const [tbl,col] of [['trips','id'],['trip_members','trip_id'],['trip_invites','trip_id'],['blobs','key'],['user_state','user_id'],['trip_codes','code']])
-      await probe('טבלת '+tbl, ()=>CloudAPI.req('GET',tbl+'?select='+col+'&limit=1'));
+    const SCHEMA={
+      trips:['id','owner','rev','payload','updated_by','updated_at'],
+      trip_members:['trip_id','user_id','role','email'],
+      trip_invites:['trip_id','email','role'],
+      blobs:['key','trip_id','value'],
+      user_state:['user_id','payload'],
+      trip_codes:['code','trip_id','role','expires_at','revoked']};
+    for(const tbl of Object.keys(SCHEMA)){
+      let tableOk=true;
+      await probe('טבלת '+tbl, async()=>{
+        try{ await CloudAPI.req('GET',tbl+'?select='+SCHEMA[tbl][0]+'&limit=0'); }
+        catch(e){ tableOk=false; throw e; }
+      });
+      if(!tableOk) continue;
+      for(const col of SCHEMA[tbl].slice(1))
+        await probe('עמודת '+tbl+'.'+col, ()=>CloudAPI.req('GET',tbl+'?select='+col+'&limit=0'));
+    }
     await probe('כתיבה לטבלת trips (insert)', async()=>{
       const rows=await CloudAPI.req('POST','trips',[{owner:Auth.user().id, rev:1, payload:{v:0, probe:true}, updated_by:Auth.user().id}],{'Prefer':'return=representation'});
       const id=rows&&rows[0]&&rows[0].id;
@@ -4574,7 +4615,10 @@ async function openCloudDoctor(){
     :r.st==='auth'?'<span class="status-pill st-upcoming">נדרשת התחברות</span>'
     :r.st==='net'?'<span class="status-pill st-upcoming">אין רשת</span>'
     :'<span class="status-pill st-cancelled">שגיאה</span>';
-  const missing=res.some(r=>r.st==='missing');
+  const tableMissing=res.some(r=>r.st==='missing' && r.label.startsWith('טבלת'));
+  const colMissing=res.filter(r=>r.st==='missing' && r.label.startsWith('עמודת')).map(r=>r.label.replace('עמודת ',''));
+  window.__fixSQL=colMissing.length?schemaFixSQL(colMissing):'';
+  const missing=tableMissing;
   const perm=res.some(r=>r.st==='perm');
   el.innerHTML=`
     <div class="card" style="padding:2px 14px;margin-bottom:14px">
@@ -4583,6 +4627,14 @@ async function openCloudDoctor(){
         ${pill(r)}
       </div>`).join('')}
     </div>
+    ${colMissing.length?`
+      <div class="card pad" style="background:var(--amber-soft);border-color:transparent;margin-bottom:12px">
+        <b style="font-size:13.5px;color:var(--amber)">${ic('alert',15)} נמצאה טבלה קיימת בסכמה לא תואמת</b>
+        <p style="margin:5px 0 0;font-size:12.5px;color:var(--ink2)">חסרות ${colMissing.length} עמודות: <b style="direction:ltr;display:inline-block">${esc(colMissing.join(', '))}</b>. התיקון המדויק (רק מוסיף עמודות — לא נוגע בנתונים):</p>
+      </div>
+      <div class="field"><label>SQL תיקון סכמה</label>
+        <textarea class="inp" readonly style="direction:ltr;font-family:ui-monospace,monospace;font-size:11px;min-height:120px">${esc(window.__fixSQL)}</textarea></div>
+      <button class="btn btn-primary btn-block" style="margin-bottom:12px" onclick="copyFixSQL()">${ic('copy',16)} העתקת תיקון הסכמה</button>`:''}
     ${missing?`
       <div class="card pad" style="background:var(--amber-soft);border-color:transparent;margin-bottom:12px">
         <b style="font-size:13.5px;color:var(--amber)">${ic('alert',15)} חסרה התקנה חד-פעמית בענן</b>
@@ -4601,7 +4653,40 @@ function copyCloudSQL(){
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(CLOUD_SQL).then(done).catch(()=>prompt('העתק:',CLOUD_SQL));
   else prompt('העתק:',CLOUD_SQL);
 }
-Object.assign(window,{openCloudDoctor, copyCloudSQL});
+const COL_DEFS={
+  'trips.owner':"uuid default auth.uid() references auth.users(id) on delete cascade",
+  'trips.rev':"bigint not null default 1",
+  'trips.payload':"jsonb",
+  'trips.updated_by':"uuid",
+  'trips.updated_at':"timestamptz not null default now()",
+  'trip_members.user_id':"uuid references auth.users(id) on delete cascade",
+  'trip_members.role':"text not null default 'edit'",
+  'trip_members.email':"text",
+  'trip_invites.email':"text",
+  'trip_invites.role':"text not null default 'edit'",
+  'blobs.trip_id':"uuid references trips(id) on delete cascade",
+  'blobs.value':"text",
+  'user_state.payload':"jsonb",
+  'trip_codes.trip_id':"uuid references trips(id) on delete cascade",
+  'trip_codes.role':"text not null default 'edit'",
+  'trip_codes.expires_at':"timestamptz not null default now() + interval '14 days'",
+  'trip_codes.revoked':"boolean not null default false"
+};
+function schemaFixSQL(missingCols){
+  const lines=missingCols.map(k=>{
+    const [tbl,col]=k.split('.');
+    return 'alter table if exists '+tbl+' add column if not exists '+col+' '+(COL_DEFS[k]||'text')+';';
+  });
+  lines.push('','-- לאחר ההוספה, הרץ שוב את סקריפט ההתקנה המלא כדי לוודא policies תקינים.','-- (אם הטבלה ריקה, חלופה נקייה: drop table <שם> cascade; ואז סקריפט ההתקנה המלא.)');
+  return lines.join('\n');
+}
+function copyFixSQL(){
+  const sql=window.__fixSQL||'';
+  const done=()=>toast('SQL התיקון הועתק ✓');
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(sql).then(done).catch(()=>prompt('העתק:',sql));
+  else prompt('העתק:',sql);
+}
+Object.assign(window,{openCloudDoctor, copyCloudSQL, copyFixSQL, schemaFixSQL});
 /* ==== END CLOUD CORE ==== */
 </script>
 <script>
