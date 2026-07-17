@@ -2034,7 +2034,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.4 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2277,7 +2277,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 3.3</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 3.4</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -4000,6 +4000,7 @@ const Auth={
       expires_at:(Date.now()/1000|0)+(d.expires_in||3600), user:d.user};
     this.persistSession();
     console.log('[AUTH] session set — auth.uid():', d.user&&d.user.id, '| email:', d.user&&d.user.email);
+    try{ if(window.__rtClient) window.__rtClient.realtime.setAuth(this.session.access_token); }catch(e){}
     return true;
   },
   async _call(path, body, useToken){
@@ -4087,9 +4088,13 @@ const CloudAPI={
     const uid=Auth.user().id;
     return this.req('POST','trips',[{owner:uid, payload, rev:1, updated_by:uid}],{'Prefer':'return=representation'});
   },
-  updateTrip(id,rev,payload){
-    return this.req('PATCH','trips?id=eq.'+id, {payload,rev,updated_by:Auth.user().id, updated_at:new Date().toISOString()});
+  updateTrip(id, prevRev, payload){
+    /* נעילת-גרסה בצד השרת: מעדכן רק אם rev לא השתנה מאז שקראנו */
+    return this.req('PATCH','trips?id=eq.'+id+'&rev=eq.'+prevRev,
+      {payload, rev:prevRev+1, updated_by:Auth.user().id, updated_at:new Date().toISOString()},
+      {'Prefer':'return=representation'});
   },
+  getTripMeta(id){ return this.req('GET','trips?id=eq.'+id+'&select=id,rev,owner'); },
   deleteTrip(id){ return this.req('DELETE','trips?id=eq.'+id); },
   myRoles(){ return this.req('GET','trip_members?select=trip_id,role,user_id'); },
   members(tripId){ return this.req('GET','trip_members?trip_id=eq.'+tripId+'&select=user_id,role,email'); },
@@ -4154,12 +4159,13 @@ const CloudSync={
           const client=window.supabase.createClient(b.url,b.key,{auth:{persistSession:false,autoRefreshToken:false}});
           if(Auth.token()) client.realtime.setAuth(Auth.token());
           client.channel('tp-live')
-            .on('postgres_changes',{event:'*',schema:'public',table:'trips'},()=>this.tick())
+            .on('postgres_changes',{event:'*',schema:'public',table:'trips'},evt=>this.onTripEvent(evt))
             .on('postgres_changes',{event:'*',schema:'public',table:'trip_members'},()=>this.tick())
             .subscribe(st=>{
               if(st==='SUBSCRIBED'){ this.realtimeOn=true; this.pollMs=10000; this.restartTimer(); this.cloudTrips().forEach(t=>this.setStatus(t.cloud.id,'synced')); }
             });
           this._rt=client;
+          window.__rtClient=client;
         }catch(e){}
       };
       s.onerror=()=>tryLoad(i+1);
@@ -4168,6 +4174,36 @@ const CloudSync={
     tryLoad(0);
   },
   restartTimer(){ if(this.timer){ clearInterval(this.timer); this.timer=setInterval(()=>this.tick(),this.pollMs); } },
+  onTripEvent(evt){
+    try{
+      const row=evt && evt['new'];
+      if(row && row.id && row.payload) this.applyRemoteRow(row);
+    }catch(e){ console.error('[TRIP-SYNC ⚡] אירוע חי נכשל', e); }
+    clearTimeout(this._rtT);
+    this._rtT=setTimeout(()=>this.tick(), 450);
+  },
+  applyRemoteRow(row){
+    const local=S.trips.find(t=>t.cloud && t.cloud.id===row.id);
+    if(!local) return false;
+    if(!(row.rev > (local.cloud.rev||0))) return false; /* רק גרסה חדשה יותר */
+    const dirty=this.lastHash[row.id]!==undefined
+      && cloudFingerprint(local)!==this.lastHash[row.id]
+      && local.cloud.role!=='view';
+    if(dirty) return false; /* עריכה מקומית פתוחה — מסלול המיזוג של tick יטפל */
+    const p=row.payload; if(!p || !p.trip) return false;
+    const t=p.trip;
+    t.cloud={id:row.id, rev:row.rev, role:local.cloud.role, owner:row.owner||local.cloud.owner,
+      pushedKeys:(local.cloud.pushedKeys||[])};
+    const i=S.trips.findIndex(x=>x.id===t.id);
+    if(i>=0) S.trips[i]=t; else S.trips.unshift(t);
+    S.docs=S.docs.filter(d=>d.tripId!==t.id).concat(p.docs||[]);
+    this.lastHash[row.id]=cloudFingerprint(t);
+    this.setStatus(row.id,'synced');
+    console.log('[TRIP-SYNC ⚡] עדכון חי הוחל מיידית — rev', row.rev);
+    if(typeof ensureShapes==='function') ensureShapes();
+    save(); render();
+    return true;
+  },
   async tick(){
     if(this.busy||!this.active()) return;
     this.busy=true;
@@ -4190,14 +4226,23 @@ const CloudSync={
     let rows;
     try{ rows=await CloudAPI.listTrips(); }
     catch(e){ this.cloudTrips().forEach(t=>this.setStatus(t.cloud.id,this.isOffline(e)?'offline':'error')); return; }
-    let roles={};
-    try{ (await CloudAPI.myRoles()||[]).forEach(m=>{ if(m.user_id===Auth.user().id) roles[m.trip_id]=m.role; }); }catch(e){}
+    let roles=null;
+    try{
+      roles={};
+      (await CloudAPI.myRoles()||[]).forEach(m=>{ if(m.user_id===Auth.user().id) roles[m.trip_id]=m.role; });
+      this._roles=roles;
+    }catch(e){
+      roles=null;
+      console.warn('[ROLE] קריאת תפקידים נכשלה — משמר תפקידים קיימים:', e&&e.message);
+    }
     const seen=new Set();
     let changed=false;
     for(const row of (rows||[])){
       seen.add(row.id);
-      const role=row.owner===Auth.user().id?'owner':(roles[row.id]||'view');
-      const local=S.trips.find(t=>t.cloud&&t.cloud.id===row.id);
+      const prevLocal=S.trips.find(t=>t.cloud&&t.cloud.id===row.id);
+      const role=row.owner===Auth.user().id?'owner'
+        :(roles ? (roles[row.id]||'view') : ((prevLocal&&prevLocal.cloud&&prevLocal.cloud.role)||'view'));
+      const local=prevLocal;
       if(!local){
         const p=row.payload||{};
         const t=p.trip; if(!t) continue;
@@ -4240,26 +4285,60 @@ const CloudSync={
   async pushDirty(){
     if(Auth.session && S.trips.some(t=>!t.cloud && !t.share)) await this.migrateLocal();
     for(const t of this.cloudTrips()){
-      if(t.cloud.role==='view') continue;
       const fp=cloudFingerprint(t);
       if(this.lastHash[t.cloud.id]===fp) continue;
+      if(t.cloud.role==='view'){
+        this._viewWarn=this._viewWarn||{};
+        if(!this._viewWarn[t.cloud.id]){
+          this._viewWarn[t.cloud.id]=1;
+          toast('לטיול "'+(t.name||'')+'" יש לך הרשאת צפייה בלבד — עריכות לא נשמרות בענן');
+        }
+        continue;
+      }
       await this.push(t,fp);
     }
     await this.pushState();
   },
-  async push(t,fp){
+  async push(t, fp, retried){
     const id=t.cloud.id;
     this.setStatus(id,'syncing');
+    const prev=t.cloud.rev||0;
     try{
       await this.pushBlobs(t);
-      const rev=(t.cloud.rev||0)+1;
-      await CloudAPI.updateTrip(id, rev, cloudPayload(t));
-      t.cloud.rev=rev;
-      this.lastHash[id]=fp!=null?fp:cloudFingerprint(t);
-      this.setStatus(id,'synced');
+      const body=cloudPayload(t);
+      console.log('[TRIP-SYNC →] PATCH trips?id=eq.'+id+'&rev=eq.'+prev,
+        {nextRev:prev+1, by:Auth.user()&&Auth.user().id, bytes:JSON.stringify(body).length});
+      const rows=await CloudAPI.updateTrip(id, prev, body);
+      const row=rows&&rows[0];
+      if(row && row.id){
+        t.cloud.rev=row.rev;
+        this.lastHash[id]=fp!=null?fp:cloudFingerprint(t);
+        this.setStatus(id,'synced');
+        console.log('[TRIP-SYNC ✓] rev',prev,'→',row.rev,'| updated_by:',row.updated_by||'');
+        return;
+      }
+      /* אפס שורות עודכנו: או שה-rev התקדם (קונפליקט) או שה-RLS סינן */
+      const meta=await CloudAPI.getTripMeta(id).catch(()=>null);
+      const srvRev=meta&&meta[0]&&meta[0].rev;
+      if(srvRev!=null && srvRev>prev){
+        console.warn('[TRIP-SYNC ⇄] קונפליקט: rev בשרת',srvRev,'> מקומי',prev,'— מושך, ממזג ושולח שוב');
+        await this.pullAll(); /* מסלול המיזוג; lastHash לא עודכן ולכן הטיול נשאר "דורש דחיפה" */
+        if(!retried){
+          const t2=S.trips.find(x=>x.cloud && x.cloud.id===id);
+          if(t2 && cloudFingerprint(t2)!==this.lastHash[id]) await this.push(t2, cloudFingerprint(t2), true);
+        }
+        return;
+      }
+      const e=new Error(srvRev==null
+        ? 'אין גישה לשורת הטיול (ייתכן שהוסרת מהטיול)'
+        : 'העדכון נדחה על ידי מדיניות ההרשאות (RLS) — נדרש תפקיד עריכה');
+      e.status=403;
+      throw e;
     }catch(e){
-      if(e.status===403||e.status===401){ this.setStatus(id,'error'); toast('אין הרשאת עריכה לטיול הזה'); }
-      else this.setStatus(id,this.isOffline(e)?'offline':'error');
+      console.error('[TRIP-SYNC ✗] העדכון לא נשמר', {tripId:id, triedRev:prev+1, role:t.cloud.role,
+        authUid:Auth.user()&&Auth.user().id, message:e.message, code:e.code||null, status:e.status||null, detail:e.detail||null});
+      this.setStatus(id, this.isOffline(e)?'offline':'error');
+      if(e.status===401||e.status===403) toast('עריכת הטיול לא נשמרה בענן: '+sbErrorHe(e));
     }
   },
   async pushBlobs(t){
