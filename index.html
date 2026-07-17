@@ -2034,7 +2034,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.2 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2277,7 +2277,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 3.2</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 3.3</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -4559,6 +4559,8 @@ function sbErrorHe(e){
   if((e&&e.code==='PGRST202')||/could not find the function/i.test(msg))
     return 'פונקציית ההצטרפות חסרה בענן — נדרשת הרצת סקריפט ההתקנה';
   if((e&&e.status===401)||/jwt|token/i.test(msg)) return 'פג תוקף ההתחברות — התנתק והתחבר מחדש';
+  if((e&&e.code==='42P17')||/infinite recursion detected in policy/i.test(msg))
+    return 'לולאת policies הדדית (42P17) — הרץ את סקריפט התיקון עם פונקציות העזר';
   const gm=/permission denied for (?:table|relation) "?([a-zA-Z_]+)"?/i.exec(msg);
   if(gm) return 'חסרה הרשאת בסיס (GRANT) לטבלת '+gm[1]+' — הרץ את בלוק ה-GRANT המלא';
   if((e&&e.status===403)||(e&&e.code==='42501')||/permission|policy|row-level/i.test(msg)) return 'אין הרשאה (RLS) לפעולה הזו';
@@ -4573,7 +4575,7 @@ async function cloudDoctor(){
       console.error('[doctor]', label, e);
       const he=sbErrorHe(e);
       out.push({label,
-        st:(he.includes('סקריפט')||he.includes('עמודה חסרה'))?'missing':((he.includes('הרשאה')||he.includes('GRANT'))?'perm':(he.includes('רשת')?'net':(he.includes('התחבר')?'auth':'err'))),
+        st:(he.includes('סקריפט')||he.includes('עמודה חסרה'))?'missing':((he.includes('הרשאה')||he.includes('GRANT')||he.includes('42P17'))?'perm':(he.includes('רשת')?'net':(he.includes('התחבר')?'auth':'err'))),
         he, raw:String(e&&e.message||'')});
     }
   };
