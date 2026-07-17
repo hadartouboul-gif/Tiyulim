@@ -2034,7 +2034,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.2 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2277,7 +2277,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 3.1</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 3.2</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -4559,6 +4559,8 @@ function sbErrorHe(e){
   if((e&&e.code==='PGRST202')||/could not find the function/i.test(msg))
     return 'פונקציית ההצטרפות חסרה בענן — נדרשת הרצת סקריפט ההתקנה';
   if((e&&e.status===401)||/jwt|token/i.test(msg)) return 'פג תוקף ההתחברות — התנתק והתחבר מחדש';
+  const gm=/permission denied for (?:table|relation) "?([a-zA-Z_]+)"?/i.exec(msg);
+  if(gm) return 'חסרה הרשאת בסיס (GRANT) לטבלת '+gm[1]+' — הרץ את בלוק ה-GRANT המלא';
   if((e&&e.status===403)||(e&&e.code==='42501')||/permission|policy|row-level/i.test(msg)) return 'אין הרשאה (RLS) לפעולה הזו';
   return 'שגיאת ענן: '+msg;
 }
@@ -4570,7 +4572,9 @@ async function cloudDoctor(){
     catch(e){
       console.error('[doctor]', label, e);
       const he=sbErrorHe(e);
-      out.push({label, st:(he.includes('סקריפט')||he.includes('עמודה חסרה'))?'missing':(he.includes('הרשאה')?'perm':(he.includes('רשת')?'net':(he.includes('התחבר')?'auth':'err'))), he});
+      out.push({label,
+        st:(he.includes('סקריפט')||he.includes('עמודה חסרה'))?'missing':((he.includes('הרשאה')||he.includes('GRANT'))?'perm':(he.includes('רשת')?'net':(he.includes('התחבר')?'auth':'err'))),
+        he, raw:String(e&&e.message||'')});
     }
   };
   out.push({label:'התחברות לחשבון', st:Auth.session?'ok':'auth'});
@@ -4623,7 +4627,7 @@ async function openCloudDoctor(){
   el.innerHTML=`
     <div class="card" style="padding:2px 14px;margin-bottom:14px">
       ${res.map(r=>`<div class="list-row" style="cursor:default">
-        <div class="lr-body"><div class="lr-title" style="font-size:13.5px">${r.label}</div>${r.he&&r.st!=='ok'?`<div class="lr-sub">${r.he}</div>`:''}</div>
+        <div class="lr-body"><div class="lr-title" style="font-size:13.5px">${r.label}</div>${r.he&&r.st!=='ok'?`<div class="lr-sub">${r.he}</div>`:''}${r.raw&&r.st!=='ok'?`<div class="lr-sub" style="direction:ltr;text-align:end;font-family:ui-monospace,monospace;font-size:10.5px;opacity:.85">${esc(r.raw)}</div>`:''}</div>
         ${pill(r)}
       </div>`).join('')}
     </div>
