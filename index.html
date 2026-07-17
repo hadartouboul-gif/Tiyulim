@@ -2034,7 +2034,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.4 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">טיולים · גרסה 3.5 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2277,7 +2277,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">טיולים · גרסה 3.4</b><br>
+    <b style="color:var(--ink)">טיולים · גרסה 3.5</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -4253,6 +4253,13 @@ const CloudSync={
         this.setStatus(row.id,'synced');
         changed=true; continue;
       }
+      if(local.cloud.role!==role && role!=='owner'){
+        if(this._viewWarn) delete this._viewWarn[row.id];
+        console.log('[ROLE] ההרשאה שלך עודכנה:', local.cloud.role, '→', role, '| trip', row.id);
+        toast(role==='edit'
+          ? 'קיבלת הרשאת עריכה לטיול "'+(local.name||'')+'" ✓ השינויים שלך יסונכרנו'
+          : 'ההרשאה לטיול "'+(local.name||'')+'" שונתה לצפייה בלבד');
+      }
       local.cloud.role=role; local.cloud.owner=row.owner;
       if(row.rev > (local.cloud.rev||0)){
         const p=row.payload||{}; if(!p.trip) continue;
@@ -4911,15 +4918,22 @@ async function openCloudShare(tripId){
   <div class="card" style="padding:2px 14px">
     <div class="list-row" style="cursor:default">
       <span class="lr-ic" style="background:var(--accent-soft);color:var(--accent-ink)">${ic('user',18)}</span>
-      <div class="lr-body"><div class="lr-title" style="direction:ltr;text-align:end">${esc(isOwner?Auth.email():'הבעלים')}</div><div class="lr-sub">בעלים</div></div>
+      <div class="lr-body"><div class="lr-title" style="direction:ltr;text-align:end">${esc(isOwner?Auth.email():'הבעלים')}</div><div class="lr-sub">בעלים · שליטה מלאה (לא ניתן להסרה)</div></div>
     </div>
-    ${members.map(m=>`<div class="list-row" style="cursor:default">
-      <span class="lr-ic" style="background:var(--line2);color:var(--ink2)">${ic('user',18)}</span>
-      <div class="lr-body"><div class="lr-title" style="direction:ltr;text-align:end">${esc(m.email||m.user_id.slice(0,8))}</div>
-        <div class="lr-sub">${m.role==='edit'?'עריכה':'צפייה'}</div></div>
-      ${isOwner?`<button class="icon-btn plain" onclick="toggleRole('${tripId}','${m.user_id}','${m.role==='edit'?'view':'edit'}')" title="החלפת הרשאה">${ic('refresh',15)}</button>
-      <button class="icon-btn plain danger" onclick="removeMember('${tripId}','${m.user_id}')">${ic('trash',15)}</button>`:''}
-    </div>`).join('')}
+    ${members.map(m=>{
+      const em=esc(m.email||m.user_id.slice(0,8));
+      return `<div class="list-row" style="cursor:default;align-items:flex-start">
+      <span class="lr-ic" style="background:${m.role==='edit'?'var(--green-soft)':'var(--line2)'};color:${m.role==='edit'?'var(--green)':'var(--ink2)'}">${ic('user',18)}</span>
+      <div class="lr-body">
+        <div class="lr-title" style="direction:ltr;text-align:end">${em}</div>
+        <div class="lr-sub">הצטרף · ${m.role==='edit'?'יכול לערוך ולשמור':'צפייה בלבד'}</div>
+        ${isOwner?`<div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-sm ${m.role==='edit'?'btn-primary':'btn-ghost'}" style="flex:1;padding:7px 0" onclick="setMemberRole('${tripId}','${m.user_id}','edit','${em}')">עריכה</button>
+          <button class="btn btn-sm ${m.role==='view'?'btn-primary':'btn-ghost'}" style="flex:1;padding:7px 0" onclick="setMemberRole('${tripId}','${m.user_id}','view','${em}')">צפייה</button>
+        </div>`:''}
+      </div>
+      ${isOwner?`<button class="icon-btn plain danger" onclick="removeMemberConfirm('${tripId}','${m.user_id}','${em}')">${ic('trash',15)}</button>`:''}
+    </div>`;}).join('')}
     ${invites.map(i=>`<div class="list-row" style="cursor:default;opacity:.6">
       <span class="lr-ic" style="background:var(--line2);color:var(--ink3)">${ic('bell',18)}</span>
       <div class="lr-body"><div class="lr-title" style="direction:ltr;text-align:end">${esc(i.email)}</div>
@@ -4946,16 +4960,32 @@ async function cancelInvite(tripId,email){
   const t=tripById(tripId); if(!t||!t.cloud) return;
   try{ await CloudAPI.uninvite(t.cloud.id,email); openCloudShare(tripId); }catch(e){ toast('נכשל'); }
 }
-async function toggleRole(tripId,userId,role){
+async function setMemberRole(tripId,userId,role,label){
   const t=tripById(tripId); if(!t||!t.cloud) return;
-  try{ await CloudAPI.setRole(t.cloud.id,userId,role); toast(role==='edit'?'הרשאת עריכה ✓':'הרשאת צפייה ✓'); openCloudShare(tripId); }catch(e){ toast('נכשל'); }
+  try{
+    await CloudAPI.setRole(t.cloud.id,userId,role);
+    toast((label||'המשתתף')+' — הרשאת '+(role==='edit'?'עריכה':'צפייה')+' ✓ תתעדכן אצלו תוך שניות');
+    openCloudShare(tripId);
+  }catch(e){
+    console.error('[setMemberRole]', {userId, role, message:e.message, code:e.code, status:e.status, detail:e.detail});
+    toast('שינוי ההרשאה נכשל: '+sbErrorHe(e));
+  }
 }
-async function removeMember(tripId,userId){
+async function removeMemberConfirm(tripId,userId,label){
   const t=tripById(tripId); if(!t||!t.cloud) return;
-  try{ await CloudAPI.removeMember(t.cloud.id,userId); toast('הוסר מהטיול'); openCloudShare(tripId); }catch(e){ toast('נכשל'); }
+  const ok=await confirmDialog((label||'המשתתף')+' יוסר מהטיול ולא יראה אותו יותר. אפשר להזמין מחדש בכל עת.');
+  if(!ok) return;
+  try{
+    await CloudAPI.removeMember(t.cloud.id,userId);
+    toast('הוסר מהטיול ✓');
+    openCloudShare(tripId);
+  }catch(e){
+    console.error('[removeMember]', {userId, message:e.message, code:e.code, status:e.status});
+    toast('ההסרה נכשלה: '+sbErrorHe(e));
+  }
 }
 Object.assign(window,{openAuthSheet,doSignIn,doSignUp,doRecover,openAccountSheet,doSignOut,
-  openCloudShare,sendInvite,cancelInvite,toggleRole,removeMember,Auth,CloudSync,CloudAPI,cloudBoot});
+  openCloudShare,sendInvite,cancelInvite,setMemberRole,removeMemberConfirm,Auth,CloudSync,CloudAPI,cloudBoot});
 (function(){
   const w=setInterval(()=>{ if(loaded){ clearInterval(w); cloudBoot(); } },300);
 })();
@@ -5012,7 +5042,8 @@ Object.assign(window,{newTripCode, copyTripCode, shareTripCode, revokeTripCode, 
 </script>
 <script>
 /* ---- pull to refresh (iOS-style arc, rAF-smooth) ---- */
-const PTR_TRIGGER=40;
+const PTR_TRIGGER=48;   /* סף שחרור (מרחק מרוסן) */
+const PTR_SLACK=14;     /* חופש תנועה לפני שהמחווה בכלל נחשבת */
 function ptrDamp(dy){ return Math.min(90, Math.round(dy*0.45)); }
 function ptrProgress(d){ return Math.max(0, Math.min(1, d/PTR_TRIGGER)); }
 (function(){
@@ -5023,13 +5054,13 @@ function ptrProgress(d){ return Math.max(0, Math.min(1, d/PTR_TRIGGER)); }
   document.body.appendChild(ptr);
   const arc=ptr.querySelector('.ptr-arc');
   const svg=ptr.querySelector('svg');
-  let startY=null, pulling=false, dist=0, refreshing=false, armed=false, raf=0;
+  let startY=null, startX=null, pulling=false, dist=0, refreshing=false, armed=false, raf=0;
   const scr=()=>document.getElementById('screen');
   function paint(){
     raf=0;
     const p=ptrProgress(dist);
     ptr.style.transform='translate(-50%,'+Math.round(dist*0.9-58)+'px) scale('+(0.6+0.4*Math.min(1,p*1.15)).toFixed(3)+')';
-    ptr.style.opacity=String(Math.min(1, p*1.6).toFixed(2));
+    ptr.style.opacity=String(Math.max(0, Math.min(1, (p-0.18)*1.5)).toFixed(2));
     arc.style.strokeDashoffset=(C*(1-0.82*p)).toFixed(1);
     svg.style.transform='rotate('+Math.round(dist*2.4)+'deg)';
     const s=scr();
@@ -5096,16 +5127,26 @@ function ptrProgress(d){ return Math.max(0, Math.min(1, d/PTR_TRIGGER)); }
     const qm=document.getElementById('qmenu');
     if(qm && qm.classList.contains('show')) return;
     startY=e.touches[0].clientY;
+    startX=e.touches[0].clientX;
     pulling=false;
   },{passive:true});
   document.addEventListener('touchmove',e=>{
     if(startY==null || refreshing) return;
-    const dy=e.touches[0].clientY-startY;
-    if(dy<=0){ if(pulling){ setPull(0); pulling=false; } return; }
-    if(window.scrollY>0){ startY=null; if(pulling){ setPull(0); pulling=false; } return; }
-    pulling=true;
+    const t0=e.touches[0];
+    const dy=t0.clientY-startY, dx=t0.clientX-startX;
+    if(!pulling){
+      /* נעילת כיוון: מחווה אופקית (צ'יפים/ימים) לעולם לא הופכת לרענון */
+      if(Math.abs(dx) > Math.abs(dy)+4){ startY=null; return; }
+      /* חופש תנועה: גלילה רגילה לא נחטפת */
+      if(dy<=PTR_SLACK) return;
+      if(window.scrollY>0){ startY=null; return; }
+      pulling=true;
+    }else{
+      if(dy<=PTR_SLACK){ setPull(0); pulling=false; return; }
+      if(window.scrollY>0){ setPull(0); pulling=false; startY=null; return; }
+    }
     e.preventDefault();
-    setPull(ptrDamp(dy));
+    setPull(ptrDamp(dy-PTR_SLACK));
   },{passive:false});
   document.addEventListener('touchend',()=>{
     if(startY==null) return;
