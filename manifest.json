@@ -1,6 +1,6 @@
 {
- "name": "טיולים",
- "short_name": "טיולים",
+ "name": "Voyage",
+ "short_name": "Voyage",
  "lang": "he",
  "dir": "rtl",
  "id": "./",
@@ -9,9 +9,19 @@
  "display": "standalone",
  "background_color": "#F5F6F8",
  "theme_color": "#3E63DD",
- "description": "מתכנן טיולים — מסלולים, מסמכים, תקציב וסנכרון בין מכשירים",
+ "description": "Voyage — תכנון טיולים פרימיום: מסלולים, שיתוף, תקציב ומסמכים בסנכרון מלא",
  "icons": [
-  { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-  { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  {
+   "src": "icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any maskable"
+  }
  ]
 }
