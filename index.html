@@ -564,6 +564,7 @@ html[data-theme=dark] .map-box{background:#151A21;}
 
 
 /* ==== VOYAGE PHASE 3 · POLISH ==== */
+.qmenu, .qmenu-backdrop{display:none !important;}
 .hero-card{position:relative;}
 .live-pill{position:absolute; top:12px; inset-inline-start:12px; z-index:2;
   display:inline-flex; align-items:center; gap:6px;
@@ -572,6 +573,8 @@ html[data-theme=dark] .map-box{background:#151A21;}
   padding:5px 10px; border-radius:999px;}
 .live-pill::before{content:''; width:7px; height:7px; border-radius:50%;
   background:var(--red); box-shadow:none;}
+.live-ind{display:inline-block; width:7px; height:7px; border-radius:50%;
+  background:var(--red); margin-inline-end:5px; vertical-align:0.5px;}
 .press{transition:transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;}
 .press:active{transform:scale(.965);}
 .icon-btn{transition:transform .14s, background .14s;}
@@ -1226,7 +1229,7 @@ function renderNav(){
       <span class="nav-pill">${ic(n.icon,22)}</span><span>${n.label}</span>
     </button>`).join('');
 }
-function fabAction(){ toggleQuickMenu(); }
+function fabAction(){ openQuickAdd(); }
 const SUB_SCREENS={home:1,map:1,wallet:1,journal:1,wishlist:1,reminders:1,assistant:1};
 function navSub(screen, back){
   UI.backTo = back || (NAV_ITEMS.some(n=>n.id===UI.screen)? UI.screen : UI.backTo) || 'more';
@@ -2251,7 +2254,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2.5 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2485,7 +2488,7 @@ function screenSettings(){
       if(sts.some(x=>x&&x.state==='error')) s='error';
       else if(sts.some(x=>x&&x.state==='offline')) s='offline';
       else if(sts.some(x=>x&&x.state==='syncing')) s='syncing';
-      const map={synced:['st-done',CloudSync.realtimeOn?'מסונכרן · ⚡ חי':'מסונכרן'],
+      const map={synced:['st-done',CloudSync.realtimeOn?'מסונכרן · <i class="live-ind"></i>חי':'מסונכרן'],
                  syncing:['st-upcoming','מסנכרן…'],
                  offline:['st-cancelled','לא מקוון — יסתנכרן כשיחזור חיבור'],
                  error:['st-cancelled','שגיאת סנכרון']};
@@ -2494,7 +2497,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.2.3</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.2.5</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -2945,7 +2948,7 @@ const QITEMS=[
 ];
 function buildQuickMenu(){
   const qb=document.createElement('div'); qb.className='qmenu-backdrop'; qb.id='qmenuB';
-  qb.onclick=()=>openQuickAdd(); document.body.appendChild(qb);
+  qb.onclick=toggleQuickMenu; document.body.appendChild(qb);
   const qm=document.createElement('div'); qm.className='qmenu'; qm.id='qmenu';
   qm.innerHTML=QITEMS.map((q,i)=>`
     <div class="q-item" style="transition-delay:${(QITEMS.length-1-i)*28}ms" onclick="qAct('${q.k}')">
@@ -2955,10 +2958,11 @@ function buildQuickMenu(){
   document.body.appendChild(qm);
 }
 function toggleQuickMenu(){
-  const open=document.getElementById('qmenu').classList.toggle('show');
-  document.getElementById('qmenuB').classList.toggle('show',open);
-  document.getElementById('fab').classList.toggle('open',open);
-  haptic();
+  /* הטור הישן בוטל — הפונקציה נשארת כסוגר-בלבד עבור קריאות קיימות */
+  const qm=document.getElementById('qmenu'), qb=document.getElementById('qmenuB'), f=document.getElementById('fab');
+  if(qm) qm.classList.remove('show');
+  if(qb) qb.classList.remove('show');
+  if(f) f.classList.remove('open');
 }
 function qAct(k){
   if(k==='newtrip'){ openTripForm(); return; }
@@ -3027,7 +3031,7 @@ function screenHome(){
   }else{
     heroMid=`<div style="margin-top:14px;font-size:13.5px;font-weight:700;opacity:.94">הטיול הסתיים — הזכרונות מחכים ביומן המסע</div>`;
   }
-  html+=`<div class="hero-card" style="background:${COVERS[t.cover||0]}">${pr.status==='ongoing'?'<span class="live-pill">חי</span>':''}<div class="hero-in">
+  html+=`<div class="hero-card" style="background:${COVERS[t.cover||0]}"><div class="hero-in">
     <div class="hero-sub">${ic('pin',13)} ${esc(curDest?curDest.name:(t.country||'ללא מדינה'))}${curDest?' · עכשיו':''}</div>
     <div class="hero-title">${esc(t.name)}</div>
     ${heroMid}
@@ -4357,7 +4361,7 @@ const CloudSync={
     if(st.state==='syncing') return '⟳ מסנכרן…';
     if(st.state==='offline') return '⌁ לא מקוון';
     if(st.state==='error') return '⚠ שגיאה';
-    return this.realtimeOn?'⚡ חי':'✓ מסונכרן';
+    return this.realtimeOn?'<i class="live-ind"></i>חי':'✓ מסונכרן';
   },
   setStatus(id,state){
     this.status[id]={state,at:Date.now()};
@@ -5073,7 +5077,7 @@ function openAccountSheet(){
     <div class="card pad" style="background:var(--green-soft);border-color:transparent;margin-bottom:14px">
       <b style="font-size:14px;color:var(--green)">${ic('check',15)} מחובר</b>
       <div style="font-size:13px;margin-top:4px;direction:ltr;text-align:end">${esc(Auth.email())}</div>
-      <div style="font-size:12px;color:var(--ink2);margin-top:6px">${owned} טיולים שלך · ${shared} משותפים איתך · ${CloudSync.realtimeOn?'⚡ עדכונים חיים פעילים':'סנכרון כל '+Math.round(CloudSync.pollMs/1000)+' שניות'}</div>
+      <div style="font-size:12px;color:var(--ink2);margin-top:6px">${owned} טיולים שלך · ${shared} משותפים איתך · ${CloudSync.realtimeOn?'<i class="live-ind"></i>עדכונים חיים פעילים':'סנכרון כל '+Math.round(CloudSync.pollMs/1000)+' שניות'}</div>
     </div>
     <button class="btn btn-soft btn-block" onclick="CloudSync.tick(); toast('מסנכרן…')">${ic('refresh',16)} סנכרון עכשיו</button>
     <button class="btn btn-ghost btn-block" style="margin-top:10px" onclick="closeSheet(); openCloudDoctor()">${ic('sliders',16)} אבחון ענן</button>
@@ -5772,7 +5776,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.2.3';
+const BUILD='4.2.5';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
