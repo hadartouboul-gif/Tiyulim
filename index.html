@@ -2254,7 +2254,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2.5 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2.6 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2497,7 +2497,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.2.5</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.2.6</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -4365,7 +4365,7 @@ const CloudSync={
   },
   setStatus(id,state){
     this.status[id]={state,at:Date.now()};
-    document.querySelectorAll('[data-shp="'+id+'"]').forEach(el=>el.textContent=this.label(id));
+    document.querySelectorAll('[data-shp="'+id+'"]').forEach(el=>el.innerHTML=this.label(id));
   },
   isOffline(e){ return (typeof navigator!=='undefined'&&navigator.onLine===false)||!!(e&&(e.name==='TypeError'||/fetch|network/i.test(String(e.message||'')))); },
   start(){
@@ -5776,7 +5776,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.2.5';
+const BUILD='4.2.6';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
