@@ -561,6 +561,47 @@ html[data-theme=dark] .map-box{background:#151A21;}
 
 
 
+
+/* ==== VOYAGE PHASE 3 · POLISH ==== */
+.press{transition:transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;}
+.press:active{transform:scale(.965);}
+.icon-btn{transition:transform .14s, background .14s;}
+.icon-btn:active{transform:scale(.9);}
+.chip{transition:background .15s, color .15s, border-color .15s, transform .14s;}
+.chip:active{transform:scale(.95);}
+.btn{transition:transform .15s, filter .15s, box-shadow .15s;}
+.btn:active{transform:scale(.97); filter:brightness(.97);}
+.list-row{transition:background .15s;}
+#undoBar{position:fixed; inset-inline:14px; bottom:calc(76px + env(safe-area-inset-bottom));
+  z-index:95; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  background:var(--ink); color:var(--bg); border-radius:16px; padding:13px 16px;
+  font-size:13.5px; font-weight:700; box-shadow:0 12px 30px -10px rgba(0,0,0,.45);
+  opacity:0; transform:translateY(14px); pointer-events:none;
+  transition:opacity .22s, transform .26s cubic-bezier(.2,.8,.3,1);}
+#undoBar.show{opacity:1; transform:none; pointer-events:auto;}
+#undoBar button{background:transparent; border:0; color:var(--accent-soft, #9DB4FF);
+  font-weight:800; font-size:13.5px; padding:4px 6px;}
+[data-theme=dark] #undoBar{background:#F2F4F8; color:#12151B;}
+.ev{position:relative;}
+.ev.sw-open::after{content:'מחיקה'; position:absolute; top:6px; bottom:6px; right:10px;
+  display:flex; align-items:center; padding:0 14px; border-radius:14px;
+  background:var(--red); color:#fff; font-size:12.5px; font-weight:800; z-index:0;}
+.ev .ev-card{position:relative; z-index:1; background:var(--card);}
+.sk{position:relative; overflow:hidden; background:var(--line2); border-radius:12px;}
+.sk::after{content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--card) 55%, transparent), transparent);
+  animation:skSh 1.2s infinite;}
+@keyframes skSh{from{transform:translateX(-100%);}to{transform:translateX(100%);}}
+.sk-row{height:52px; margin-bottom:10px;}
+.mem-av{font-weight:800; font-size:15px;}
+.empty{padding-top:8px;}
+.empty b{font-size:15.5px;}
+.progress{height:9px; border-radius:99px; overflow:hidden;}
+.progress > div{border-radius:99px; transition:width .5s cubic-bezier(.2,.8,.3,1);}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.01ms !important; transition-duration:.01ms !important;}
+}
+
 /* ==== VOYAGE PHASE 2 ==== */
 #evList, #evListToday{position:relative;}
 #evList::before, #evListToday::before{content:''; position:absolute; top:14px; bottom:14px;
@@ -1078,6 +1119,7 @@ function applyTheme(){
 let toastT=null;
 function toast(msg){
   const t=document.getElementById('toast');
+  if(/[✓⚡]/.test(msg)) haptic();
   t.textContent=msg; t.classList.add('show');
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1700);
 }
@@ -1519,7 +1561,8 @@ function screenItinerary(){
   </div>`;
   html+=destCover(dest);
   if(typeof destStripHTML==='function') html+=destStripHTML(t,dest);
-  if(!dest.days.length) return html+emptyState('calendar','אין ימים ביעד','קבע תאריכי התחלה וסיום ליעד כדי שייווצרו ימים','');
+  if(!dest.days.length) return html+emptyState('calendar','אין ימים ביעד','קבע תאריכי התחלה וסיום ליעד כדי שייווצרו ימים',
+      `<button class="btn btn-primary" onclick="openDestForm('${dest.id}')">עריכת תאריכי היעד</button>`);
   const today=todayStr();
   html+=`<div class="chips" id="dayPills">${dayPillsHTML(dest, day.id, today)}</div>`;
   html+=daySummary(day);
@@ -1879,13 +1922,21 @@ function toggleEvFav(id){
   const day=currentDay(); const e=day.events.find(x=>x.id===id); if(!e) return;
   e.favorite=!e.favorite; save(); closeSheet(); refreshDay();
 }
-async function deleteEvent(id){
+function deleteEvent(id){
+  const t=activeTrip(); if(!t) return;
+  let loc=null;
+  (t.destinations||[]).forEach(d=>(d.days||[]).forEach(dy=>{
+    const i=(dy.events||[]).findIndex(e=>e.id===id);
+    if(i>=0) loc={dy,i,ev:dy.events[i]};
+  }));
+  if(!loc) return;
   closeSheet();
-  const ok=await confirmDialog('למחוק את האירוע?',true);
-  if(!ok) return;
-  const day=currentDay();
-  day.events=day.events.filter(x=>x.id!==id);
-  save('נמחק'); refreshDay();
+  loc.dy.events.splice(loc.i,1);
+  save(); refreshDay();
+  Undo.show('האירוע "'+(loc.ev.title||'ללא שם')+'" נמחק', ()=>{
+    loc.dy.events.splice(Math.min(loc.i, loc.dy.events.length), 0, loc.ev);
+    save('שוחזר ✓'); refreshDay();
+  });
 }
 </script>
 <script>
@@ -2025,12 +2076,13 @@ function doMoveDoc(id,folder){
 }
 async function deleteDoc(id){
   closeSheet();
-  const ok=await confirmDialog('למחוק את המסמך לצמיתות?',true);
-  if(!ok) return;
-  const d=S.docs.find(x=>x.id===id);
-  await FileStore.del(d.key);
-  S.docs=S.docs.filter(x=>x.id!==id);
-  save('נמחק'); render();
+  const d=S.docs.find(x=>x.id===id); if(!d) return;
+  const idx=S.docs.indexOf(d);
+  S.docs.splice(idx,1);
+  save(); render();
+  Undo.show('המסמך "'+(d.name||'ללא שם')+'" נמחק',
+    ()=>{ S.docs.splice(Math.min(idx,S.docs.length),0,d); save('שוחזר ✓'); render(); },
+    ()=>{ try{ FileStore.del(d.key); if(d.thumbKey) FileStore.del(d.thumbKey); }catch(e){} });
 }
 
 /* ================= BUDGET ================= */
@@ -2150,10 +2202,18 @@ function saveExpense(){
     date:document.getElementById('xf-date').value});
   save('נוספה הוצאה'); closeSheet(); render();
 }
-async function deleteExpense(id){
-  const t=activeTrip();
-  t.expenses=t.expenses.filter(x=>x.id!==id);
-  save('נמחק'); render();
+function deleteExpense(id){
+  const t=activeTrip(); if(!t) return;
+  const i=(t.expenses||[]).findIndex(x=>x.id===id);
+  if(i<0) return;
+  const x=t.expenses[i];
+  closeSheet();
+  t.expenses.splice(i,1);
+  save(); render();
+  Undo.show('ההוצאה "'+(x.title||x.desc||'')+'" נמחקה', ()=>{
+    t.expenses.splice(Math.min(i,t.expenses.length),0,x);
+    save('שוחזר ✓'); render();
+  });
 }
 
 /* ================= MORE HUB ================= */
@@ -2182,7 +2242,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2425,7 +2485,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.1</b><br>
+    <b style="color:var(--ink)">Voyage · גרסה 4.2</b><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
   <div class="section-label">נתונים</div>
@@ -4858,7 +4918,7 @@ async function cloudDoctor(){
   return out;
 }
 async function openCloudDoctor(){
-  openSheet('אבחון ענן', `<div id="docBody"><div class="empty" style="padding:26px 0">בודק את החיבור והטבלאות…</div></div>`);
+  openSheet('אבחון ענן', `<div id="docBody">${'<div class="sk sk-row"></div>'.repeat(5)}</div>`);
   const res=await cloudDoctor();
   const el=document.getElementById('docBody'); if(!el) return;
   const pill=r=>r.st==='ok'?'<span class="status-pill st-done">תקין</span>'
@@ -5083,7 +5143,7 @@ async function openCloudShare(tripId){
     ${members.map(m=>{
       const em=esc(m.email||m.user_id.slice(0,8));
       return `<div class="list-row" style="cursor:default;align-items:flex-start">
-      <span class="lr-ic" style="background:${m.role==='edit'?'var(--green-soft)':'var(--line2)'};color:${m.role==='edit'?'var(--green)':'var(--ink2)'}">${ic('user',18)}</span>
+      <span class="lr-ic mem-av" style="background:${m.role==='edit'?'var(--green-soft)':'var(--line2)'};color:${m.role==='edit'?'var(--green)':'var(--ink2)'}">${esc((m.email||'?')[0].toUpperCase())}</span>
       <div class="lr-body">
         <div class="lr-title" style="direction:ltr;text-align:end">${em}</div>
         <div class="lr-sub">הצטרף · ${m.role==='edit'?'יכול לערוך ולשמור':'צפייה בלבד'}</div>
@@ -5617,7 +5677,76 @@ function openToday(){
   }
   openSheet('היום', body);
 }
-Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump});
+const Undo={
+  t:null, _restore:null, _expire:null,
+  _bar(){
+    let b=document.getElementById('undoBar');
+    if(!b){ b=document.createElement('div'); b.id='undoBar'; document.body.appendChild(b); }
+    return b;
+  },
+  show(msg,onRestore,onExpire){
+    this.finalize();
+    const b=this._bar();
+    b.innerHTML='<span>'+esc(msg)+'</span><button onclick="Undo.restore()">ביטול</button>';
+    requestAnimationFrame(()=>b.classList.add('show'));
+    haptic();
+    this._restore=onRestore||null; this._expire=onExpire||null;
+    this.t=setTimeout(()=>this.finalize(), 5000);
+  },
+  restore(){
+    clearTimeout(this.t);
+    const r=this._restore; this._restore=null; this._expire=null;
+    const b=document.getElementById('undoBar'); if(b) b.classList.remove('show');
+    if(r) r();
+  },
+  finalize(){
+    clearTimeout(this.t);
+    const e=this._expire; this._restore=null; this._expire=null;
+    const b=document.getElementById('undoBar'); if(b) b.classList.remove('show');
+    if(e) e();
+  }
+};
+/* swipe-to-delete on day timeline events */
+(function(){
+  let card=null,row=null,sx=0,sy=0,dx=0,active=false;
+  document.addEventListener('touchstart',e=>{
+    const c=e.target.closest && e.target.closest('#evList .ev-card, #evListToday .ev-card');
+    card=null; row=null; active=false; dx=0;
+    if(!c) return;
+    const r=c.closest('.ev');
+    if(!r || !r.getAttribute('data-id') || r.classList.contains('add-ev-row') || r.classList.contains('hotel-stay-x')) return;
+    card=c; row=r; sx=e.touches[0].clientX; sy=e.touches[0].clientY;
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!card) return;
+    const t=e.touches[0]; dx=t.clientX-sx; const dy=t.clientY-sy;
+    if(!active){
+      if(Math.abs(dy)>10){ card=null; row=null; return; }
+      if(dx>-12) return;
+      active=true; row.classList.add('sw-open');
+    }
+    const lim=Math.max(-96, Math.min(0, dx));
+    card.style.transform='translateX('+lim+'px)';
+    e.preventDefault();
+  },{passive:false});
+  document.addEventListener('touchend',()=>{
+    if(!card) return;
+    const c=card, r=row; card=null; row=null;
+    if(!active){ r&&r.classList.remove('sw-open'); return; }
+    const id=r.getAttribute('data-id');
+    const t=activeTrip();
+    const isEvent=!!(id && t && (t.destinations||[]).some(d=>(d.days||[]).some(dy=>(dy.events||[]).some(ev=>ev.id===id))));
+    if(dx<=-70 && isEvent){
+      haptic();
+      c.style.transition='transform .18s ease'; c.style.transform='translateX(-115%)';
+      setTimeout(()=>{ r.classList.remove('sw-open'); deleteEvent(id); }, 150);
+    }else{
+      c.style.transition='transform .24s cubic-bezier(.2,.8,.3,1)'; c.style.transform='';
+      setTimeout(()=>{ c.style.transition=''; r.classList.remove('sw-open'); }, 260);
+    }
+  },{passive:true});
+})();
+Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump,Undo});
 /* ==== END VOYAGE CORE ==== */
 </script>
 </body>
