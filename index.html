@@ -460,7 +460,7 @@ a.mini-link{
 .now-row{display:flex; align-items:center; gap:10px; padding:4px 0; position:relative;}
 .now-dot{width:12px; height:12px; border-radius:50%;  margin-inline-start:14px;
     z-index:1;
-  background:var(--accent); box-shadow:none;}
+  background:var(--red); box-shadow:none; width:9px; height:9px;}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 4px var(--red-soft);} 50%{box-shadow:0 0 0 8px var(--red-soft);}}
 .now-track{flex:1; display:flex; align-items:center; gap:8px;}
 .now-track::after{content:""; flex:1; height:2px; background:var(--red); opacity:.5; border-radius:2px;}
@@ -564,6 +564,14 @@ html[data-theme=dark] .map-box{background:#151A21;}
 
 
 /* ==== VOYAGE PHASE 3 · POLISH ==== */
+.hero-card{position:relative;}
+.live-pill{position:absolute; top:12px; inset-inline-start:12px; z-index:2;
+  display:inline-flex; align-items:center; gap:6px;
+  background:rgba(0,0,0,.30); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+  color:#fff; font-size:11px; font-weight:800; letter-spacing:.3px;
+  padding:5px 10px; border-radius:999px;}
+.live-pill::before{content:''; width:7px; height:7px; border-radius:50%;
+  background:var(--red); box-shadow:none;}
 .press{transition:transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;}
 .press:active{transform:scale(.965);}
 .icon-btn{transition:transform .14s, background .14s;}
@@ -2243,7 +2251,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2.2 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2486,7 +2494,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.2.2</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.2.3</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -3019,7 +3027,7 @@ function screenHome(){
   }else{
     heroMid=`<div style="margin-top:14px;font-size:13.5px;font-weight:700;opacity:.94">הטיול הסתיים — הזכרונות מחכים ביומן המסע</div>`;
   }
-  html+=`<div class="hero-card" style="background:${COVERS[t.cover||0]}"><div class="hero-in">
+  html+=`<div class="hero-card" style="background:${COVERS[t.cover||0]}">${pr.status==='ongoing'?'<span class="live-pill">חי</span>':''}<div class="hero-in">
     <div class="hero-sub">${ic('pin',13)} ${esc(curDest?curDest.name:(t.country||'ללא מדינה'))}${curDest?' · עכשיו':''}</div>
     <div class="hero-title">${esc(t.name)}</div>
     ${heroMid}
@@ -5686,27 +5694,41 @@ const Undo={
   _bar(){
     let b=document.getElementById('undoBar');
     if(!b){ b=document.createElement('div'); b.id='undoBar'; document.body.appendChild(b); }
+    const dark=document.documentElement.getAttribute('data-theme')==='dark';
+    b.style.cssText='position:fixed;left:14px;right:14px;bottom:calc(94px + env(safe-area-inset-bottom));'
+      +'z-index:9990;display:flex;align-items:center;justify-content:space-between;gap:12px;'
+      +'padding:14px 16px;border-radius:16px;font-size:14px;font-weight:700;direction:rtl;'
+      +'box-shadow:0 14px 34px -10px rgba(0,0,0,.5);opacity:0;transform:translateY(12px);'
+      +'transition:opacity .2s, transform .24s cubic-bezier(.2,.8,.3,1);pointer-events:none;'
+      +'background:'+(dark?'#F2F4F8':'#15181F')+';color:'+(dark?'#15181F':'#fff')+';';
+    b.__btnColor=dark?'#3E63DD':'#8FA8FF';
     return b;
   },
   show(msg,onRestore,onExpire){
     this.finalize();
     const b=this._bar();
-    b.innerHTML='<span>'+esc(msg)+'</span><button onclick="Undo.restore()">ביטול</button>';
-    requestAnimationFrame(()=>b.classList.add('show'));
+    b.innerHTML='<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(msg)+'</span>'
+      +'<button style="background:transparent;border:0;color:'+b.__btnColor+';font-weight:800;font-size:14.5px;padding:4px 8px;flex:none" onclick="Undo.restore()">ביטול</button>';
+    void b.offsetHeight;
+    b.style.opacity='1'; b.style.transform='none'; b.style.pointerEvents='auto';
     haptic();
     this._restore=onRestore||null; this._expire=onExpire||null;
     this.t=setTimeout(()=>this.finalize(), 6000);
   },
+  _hide(){
+    const b=document.getElementById('undoBar');
+    if(b){ b.style.opacity='0'; b.style.transform='translateY(12px)'; b.style.pointerEvents='none'; }
+  },
   restore(){
     clearTimeout(this.t);
     const r=this._restore; this._restore=null; this._expire=null;
-    const b=document.getElementById('undoBar'); if(b) b.classList.remove('show');
+    this._hide();
     if(r) r();
   },
   finalize(){
     clearTimeout(this.t);
     const e=this._expire; this._restore=null; this._expire=null;
-    const b=document.getElementById('undoBar'); if(b) b.classList.remove('show');
+    this._hide();
     if(e) e();
   }
 };
@@ -5750,7 +5772,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.2.2';
+const BUILD='4.2.3';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
