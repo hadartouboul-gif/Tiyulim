@@ -1212,7 +1212,6 @@ function enableDrag(container, itemSel, handleSel, onDone){
 /* ================= NAV / ROUTER ================= */
 const NAV_ITEMS=[
   {id:'trips',     label:'טיולים',  icon:'map'},
-  {id:'itinerary', label:'מסלול',   icon:'calendar'},
   {id:'docs',      label:'מסמכים',  icon:'folder'},
   {id:'budget',    label:'תקציב',   icon:'wallet'},
   {id:'more',      label:'עוד',     icon:'grid'}
@@ -1225,11 +1224,17 @@ function go(screen){
 }
 function renderNav(){
   document.getElementById('nav').innerHTML = NAV_ITEMS.map(n=>`
-    <button class="nav-item ${UI.screen===n.id?'active':''}" onclick="go('${n.id}')">
+    <button class="nav-item ${(UI.screen===n.id||(UI.screen==='itinerary'&&n.id==='trips'))?'active':''}" onclick="go('${n.id}')">
       <span class="nav-pill">${ic(n.icon,22)}</span><span>${n.label}</span>
     </button>`).join('');
 }
 function fabAction(){ openQuickAdd(); }
+function openTripItinerary(id){
+  S.activeTripId=id;
+  UI.destId=null; UI.dayId=null; UI.__dayInit=false;
+  save(); go('itinerary');
+}
+Object.assign(window,{openTripItinerary});
 const SUB_SCREENS={home:1,map:1,wallet:1,journal:1,wishlist:1,reminders:1,assistant:1};
 function navSub(screen, back){
   UI.backTo = back || (NAV_ITEMS.some(n=>n.id===UI.screen)? UI.screen : UI.backTo) || 'more';
@@ -1242,7 +1247,7 @@ function render(){
   renderNav();
   const fab=document.getElementById('fab');
   if(!fab.querySelector('.ic')) fab.innerHTML=ic('plus',26,2.2);
-  fab.classList.remove('hide');
+  fab.classList.toggle('hide', UI.screen==='trips');
   const viewKey=UI.screen+'|'+(UI.destId||'')+'|'+(UI.dayId||'')+'|'+(UI.moreView||'');
   const sameView=(window.__viewKey===viewKey);
   window.__viewKey=viewKey;
@@ -1333,7 +1338,8 @@ function screenTrips(){
   const live=S.trips.filter(t=>!t.archived && match(t));
   const arch=S.trips.filter(t=>t.archived && match(t));
   let html=topBar('טיולים','כל ההרפתקאות במקום אחד',
-    `<button class="icon-btn" style="${(typeof Auth!=='undefined'&&Auth.session)?'color:var(--green);border-color:var(--green)':''}" onclick="(typeof Auth!=='undefined'&&Auth.session)?openAccountSheet():openAuthSheet()" aria-label="חשבון">${ic('user',19)}</button>
+    `<button class="icon-btn" onclick="openTripForm()" aria-label="טיול חדש">${ic('plus',20)}</button>
+       <button class="icon-btn" style="${(typeof Auth!=='undefined'&&Auth.session)?'color:var(--green);border-color:var(--green)':''}" onclick="(typeof Auth!=='undefined'&&Auth.session)?openAccountSheet():openAuthSheet()" aria-label="חשבון">${ic('user',19)}</button>
      <button class="icon-btn" onclick="openShareHub()" aria-label="שיתוף והצטרפות">${ic('share',19)}</button>
      <button class="icon-btn" onclick="openGlobalSearch()" aria-label="חיפוש">${ic('search',19)}</button>
      <button class="icon-btn" onclick="toggleTheme()" aria-label="מצב תצוגה">${ic(resolvedTheme()==='dark'?'sun':'moon',19)}</button>`);
@@ -1369,7 +1375,7 @@ function tripCard(t){
   const spent=(t.expenses||[]).reduce((s,e)=>s+(+e.amount||0),0)
     + (t.destinations||[]).reduce((s,d)=>s+(d.days||[]).reduce((s2,dy)=>s2+(dy.events||[]).reduce((s3,e)=>s3+(+e.actualCost||0),0),0),0);
   const flag=(typeof countryFlag==='function')?countryFlag(t.country):'';
-  return `<div class="card trip-card press" onclick="selectTrip('${t.id}')">
+  return `<div class="card trip-card press" onclick="openTripItinerary('${t.id}')">
     <div class="tc-stats">
       <div class="tc-stat"><b>${(t.destinations||[]).length}</b><span>יעדים</span></div>
       <div class="tc-stat"><b>${dur||0}</b><span>ימים</span></div>
@@ -1550,11 +1556,12 @@ function currentDay(){
 }
 function screenItinerary(){
   const t=activeTrip();
-  let html=topBar('מסלול', t?esc(t.name):'בחר טיול',
-    t?`<button class="icon-btn" onclick="navSub('home','itinerary')" aria-label="דשבורד">${ic('home',19)}</button>
+  let html=topBar(t?esc(t.name):'מסלול', t?'מסלול · יעדים וימים':'בחר טיול מרשימת הטיולים',
+    `<button class="icon-btn" onclick="go('trips')" aria-label="חזרה לטיולים" style="font-size:22px;font-weight:700;line-height:1">›</button>`+
+    (t?`<button class="icon-btn" onclick="navSub('home','itinerary')" aria-label="דשבורד">${ic('home',19)}</button>
        <button class="icon-btn" onclick="openToday()" aria-label="היום">${ic('sun',19)}</button>
        <button class="icon-btn" onclick="openPlanning()" aria-label="מצב תכנון">${ic('calendar',19)}</button>
-       <button class="icon-btn" onclick="openDestManager()" aria-label="ניהול יעדים">${ic('sliders',19)}</button>`:'');
+       <button class="icon-btn" onclick="openDestManager()" aria-label="ניהול יעדים">${ic('sliders',19)}</button>`:''));
   if(!t) return html+emptyState('calendar','אין טיול פעיל','בחר טיול או צור אחד חדש כדי לבנות מסלול',
     `<button class="btn btn-primary" onclick="go('trips')">למסך הטיולים</button>`);
   if(!t.destinations.length)
@@ -2254,7 +2261,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.2.6 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2497,7 +2504,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.2.6</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.3</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -5776,7 +5783,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.2.6';
+const BUILD='4.3';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
