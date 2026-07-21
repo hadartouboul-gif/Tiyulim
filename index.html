@@ -2352,7 +2352,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.4.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.5 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2595,7 +2595,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.4.1</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.5</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -2901,22 +2901,86 @@ const DC_PAL=[
   {sky:['#CFE8E4','#8FC1BE'], sun:'#FFFFFF', m:['#7FA8A4','#5B8481','#3D615F']},
   {sky:['#FFE29A','#F4A85B'], sun:'#FFF9E3', m:['#C97D4F','#8F5236','#5C3524']}
 ];
+/* ==== יעדים · תמונת-נושא אוניברסלית (ללא רשת, ללא API, אף פעם לא שוברת) ====
+   ביומה (סוג הנוף) נגזרת מנתונים שכבר יש לנו: שם היעד + מדינת הטיול,
+   באמצעות מילות-מפתח רב-לשוניות ו/או זיהוי עיר במאגר. פלייטת הצבעים
+   ממשיכה להיגזר מ-hash של שם היעד — כך שלכל יעד יש שילוב ייחודי משלו. */
+const BIOME_KEYWORDS=[
+  [/חוף|beach|island|isola|playa|\bאי\b|lagoon/i,'beach'],
+  [/מדבר|desert|sahara|dune|oasis/i,'desert'],
+  [/הרי|אלפ|alps|ski|סקי|שלג|snow|glacier|קרחון|fjord/i,'snow']
+];
+const COUNTRY_BIOME_HINTS={AE:'desert',EG:'desert',MA:'desert',TH:'beach',ID:'beach',LK:'beach',PH:'beach',MY:'beach',CH:'snow',AT:'snow',IS:'snow',NO:'snow'};
+const CITY_BIOME_HINTS={
+  'סנטוריני':'beach','מיקונוס':'beach','באלי':'beach','פוקט':'beach','קוסמוי':'beach',
+  'אילת':'beach','קנקון':'beach','ניס':'beach','מיורקה':'beach','חוף אמלפי':'beach',
+  'לרנקה':'beach','פאפוס':'beach',
+  'צרמט':'snow','אינטרלאקן':'snow','רייקיאוויק':'snow','ברגן':'snow',
+  'מרקש':'desert','קהיר':'desert','דובאי':'desert','אבו דאבי':'desert'
+};
+function destBiome(name){
+  const n=String(name||'');
+  const tripCountry=(typeof activeTrip==='function' && activeTrip() && activeTrip().country)||'';
+  for(const [re,b] of BIOME_KEYWORDS) if(re.test(n)||re.test(tripCountry)) return b;
+  if(CITY_BIOME_HINTS[n]) return CITY_BIOME_HINTS[n];
+  if(typeof citySearch==='function'){
+    const hit=citySearch(n)[0];
+    if(hit && hit.s>=80 && COUNTRY_BIOME_HINTS[hit.country]) return COUNTRY_BIOME_HINTS[hit.country];
+  }
+  if(typeof COUNTRY_DB!=='undefined' && typeof vNorm==='function' && tripCountry){
+    const nq=vNorm(tripCountry);
+    for(const code in COUNTRY_DB){
+      const c=COUNTRY_DB[code];
+      if(vNorm(c[0])===nq||vNorm(c[1])===nq){ if(COUNTRY_BIOME_HINTS[code]) return COUNTRY_BIOME_HINTS[code]; break; }
+    }
+  }
+  return 'city';
+}
+function destGroundSVG(biome,p,h){
+  if(biome==='beach'){
+    const wy=76+(h%12), palmX=54+(h%56);
+    return `<path d="M0,${wy} Q60,${wy-11} 120,${wy} T240,${wy} T400,${wy-4} L400,120 L0,120 Z" fill="${p.m[1]}" opacity=".9"/>
+      <path d="M0,${wy+15} Q80,${wy+5} 160,${wy+15} T400,${wy+11} L400,120 L0,120 Z" fill="${p.m[2]}"/>
+      <g transform="translate(${palmX},${wy-6})" opacity=".92">
+        <rect x="-2" y="0" width="4" height="30" rx="2" fill="${p.m[0]}"/>
+        <path d="M0,0 Q-22,-14 -34,-4" stroke="${p.m[0]}" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <path d="M0,0 Q22,-14 34,-4" stroke="${p.m[0]}" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <path d="M0,0 Q-14,-23 -6,-35" stroke="${p.m[0]}" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <path d="M0,0 Q14,-23 6,-35" stroke="${p.m[0]}" stroke-width="4" fill="none" stroke-linecap="round"/>
+      </g>`;
+  }
+  if(biome==='desert'){
+    return `<path d="M0,120 Q100,${58+(h%14)} 200,${86+(h%10)} T400,${70+(h%16)} L400,120 Z" fill="${p.m[1]}" opacity=".85"/>
+      <path d="M0,120 Q120,${88+(h%12)} 240,${100+(h%8)} T400,${96+(h%10)} L400,120 Z" fill="${p.m[2]}"/>`;
+  }
+  if(biome==='snow'){
+    const peaks=[[70+(h%20),50],[190+(h%26),30],[310+(h%18),56]];
+    return peaks.map(([x,ty],i)=>`<polygon points="${x-72},120 ${x},${ty} ${x+72},120" fill="${p.m[i%p.m.length]}" opacity="${.72+i*.08}"/>
+      <polygon points="${x-15},${ty+21} ${x-6},${ty+13} ${x},${ty+21} ${x+6},${ty+13} ${x+15},${ty+21}" fill="#fff" opacity=".92"/>`).join('');
+  }
+  const n=5+(h%3); let x=0, bars='';
+  for(let i=0;i<n && x<420;i++){
+    const bw=34+((h>>(i*2))%22), bh=30+((h>>(i+3))%56), lit=(h>>(i+5))%3===0;
+    bars+=`<rect x="${x}" y="${120-bh}" width="${bw-3}" height="${bh}" fill="${p.m[i%p.m.length]}" opacity="${.78+(i%2)*.12}"/>`;
+    if(lit) bars+=`<rect x="${x+bw*.35}" y="${120-bh+10}" width="4" height="4" fill="${p.sun}" opacity=".7"/>`;
+    x+=bw;
+  }
+  return bars;
+}
 function destCover(dest){
+  const biome=destBiome(dest.name);
   const p=DC_PAL[hsh(dest.name||dest.id)%DC_PAL.length];
   const h=hsh(dest.id), sx=60+(h%280);
   const gid='g'+(h%99999);
+  const showSun=biome!=='snow';
   const svg=`<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice">
     <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="${p.sky[0]}"/><stop offset="1" stop-color="${p.sky[1]}"/></linearGradient></defs>
     <rect width="400" height="120" fill="url(#${gid})"/>
-    <circle cx="${sx}" cy="38" r="17" fill="${p.sun}" opacity=".95"/>
-    <circle cx="${sx}" cy="38" r="26" fill="${p.sun}" opacity=".22"/>
-    <polygon points="0,120 70,58 150,120" fill="${p.m[0]}" opacity=".82"/>
-    <polygon points="90,120 200,44 320,120" fill="${p.m[1]}" opacity=".88"/>
-    <polygon points="240,120 330,64 400,102 400,120" fill="${p.m[0]}" opacity=".7"/>
-    <polygon points="0,120 60,92 140,112 230,88 320,110 400,94 400,120" fill="${p.m[2]}"/>
+    ${showSun?`<circle cx="${sx}" cy="38" r="17" fill="${p.sun}" opacity=".95"/><circle cx="${sx}" cy="38" r="26" fill="${p.sun}" opacity=".22"/>`:''}
+    ${destGroundSVG(biome,p,h)}
   </svg>`;
-  return `<div class="dest-cover">${svg}
+  return `<div class="dest-cover" data-biome="${biome}">${svg}
     <button class="dc-menu" onclick="openDestMenu('${dest.id}')" aria-label="אפשרויות יעד">${ic('dots',19)}</button>
     <div class="dc-in">
     <div class="dc-name">${esc(dest.name)||'יעד'}</div>
@@ -5896,7 +5960,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.4.1';
+const BUILD='4.5';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
