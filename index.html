@@ -359,8 +359,20 @@ textarea.inp{resize:vertical; min-height:76px; line-height:1.55;}
 .bar-row{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
 .bar-lbl{width:82px; font-size:12.5px; font-weight:600; color:var(--ink2); flex-shrink:0;}
 .bar-track{flex:1; height:22px; background:var(--line2); border-radius:8px; overflow:hidden;}
-.bar-fill{height:100%; border-radius:8px; display:flex; align-items:center; padding:0 8px;
-  font-size:11px; font-weight:700; color:#fff; min-width:fit-content; transition:width .5s;}
+.bar-fill{height:100%; display:flex; align-items:center; padding:0 7px;
+  font-size:10.5px; font-weight:700; min-width:fit-content; transition:width .5s; flex-shrink:0;}
+.bar-fill-act{color:#fff; border-radius:8px 0 0 8px;}
+.bar-fill-act:last-child{border-radius:8px;}
+.bar-fill-est{background:repeating-linear-gradient(135deg, currentColor 0 2px, transparent 2px 7px);
+  background-color:var(--card); border:1.5px dashed currentColor; box-sizing:border-box;
+  border-radius:0 8px 8px 0;}
+.bar-fill-est:first-child{border-radius:8px;}
+.bar-fill-est > span{background:var(--card); padding:0 2px; border-radius:4px;}
+.bcat-legend{display:flex; gap:16px; font-size:11.5px; color:var(--ink2); margin:2px 2px 8px;}
+.bcat-legend span{display:inline-flex; align-items:center; gap:5px;}
+.bcat-sw{width:11px; height:11px; border-radius:3px; display:inline-block;}
+.bcat-sw-act{background:var(--ink2);}
+.bcat-sw-est{background:var(--card); border:1.5px dashed var(--ink2); box-sizing:border-box;}
 
 .stat-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px;}
 .stat-grid>*{min-width:0;}
@@ -2238,18 +2250,25 @@ function screenBudget(){
     <div style="display:flex;gap:14px;margin-top:12px;font-size:12.5px;color:var(--ink2)">
       <span>צפי כולל: <b style="color:var(--ink)">${money(b.est)}</b></span>
     </div>
+    ${b.est>b.act?`<p class="mini-note" style="margin:6px 0 0">כולל עלויות מתוכננות (כמו הזמנות מלון) שטרם שולמו בפועל</p>`:''}
   </div>`;
   const activeCats=BUDGET_CATS.filter(c=>b.cats[c.id].act||b.cats[c.id].est);
   if(activeCats.length){
-    const max=Math.max(...activeCats.map(c=>Math.max(b.cats[c.id].act,b.cats[c.id].est)),1);
-    html+=`<div class="section-label">${ic('chart',14)} פילוח לפי קטגוריה</div><div class="card pad">`;
+    const max=Math.max(...activeCats.map(c=>(b.cats[c.id].act+b.cats[c.id].est)),1);
+    html+=`<div class="section-label">${ic('chart',14)} פילוח לפי קטגוריה</div>
+    <div class="bcat-legend"><span><i class="bcat-sw bcat-sw-act"></i>שולם בפועל</span><span><i class="bcat-sw bcat-sw-est"></i>מתוכנן · טרם שולם</span></div>
+    <div class="card pad">`;
     activeCats.forEach(c=>{
-      const v=b.cats[c.id].act||b.cats[c.id].est;
-      const isEst=!b.cats[c.id].act;
+      const act=b.cats[c.id].act, est=b.cats[c.id].est, tot=act+est;
+      const actPct=Math.max(act?10:0, tot?act/max*100:0);
+      const estPct=Math.max(est?10:0, tot?est/max*100:0);
       html+=`<div class="bar-row"><span class="bar-lbl">${c.label}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${Math.max(12,v/max*100)}%;background:${c.color};opacity:${isEst?0.55:1}">${money(v)}</div></div></div>`;
+        <div class="bar-track">
+          ${act?`<div class="bar-fill bar-fill-act" style="width:${actPct}%;background:${c.color}">${money(act)}</div>`:''}
+          ${est?`<div class="bar-fill bar-fill-est" style="width:${estPct}%;border-color:${c.color};color:${c.color}"><span>${money(est)}</span></div>`:''}
+        </div></div>`;
     });
-    html+=`<p class="mini-note">מלא = הוצאה בפועל · שקוף = צפי בלבד</p></div>`;
+    html+=`</div>`;
   }
   const dailyKeys=Object.keys(b.daily).sort();
   if(dailyKeys.length>1){
@@ -2352,7 +2371,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.5 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.5.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2595,7 +2614,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.5</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.5.1</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -5960,7 +5979,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.5';
+const BUILD='4.5.1';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
