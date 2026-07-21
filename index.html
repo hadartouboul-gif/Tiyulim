@@ -564,6 +564,13 @@ html[data-theme=dark] .map-box{background:#151A21;}
 
 
 /* ==== VOYAGE PHASE 3 · POLISH ==== */
+.ham-btn{position:relative;}
+.ham-lines{display:inline-flex; flex-direction:column; justify-content:center; gap:4px; width:17px; height:13px; position:relative;}
+.ham-lines i{display:block; height:2px; border-radius:2px; background:currentColor;
+  transform-origin:center; transition:transform .32s cubic-bezier(.4,0,.2,1), opacity .18s ease, width .2s;}
+.ham-btn.open .ham-lines i:nth-child(1){transform:translateY(6px) rotate(45deg);}
+.ham-btn.open .ham-lines i:nth-child(2){opacity:0; transform:scaleX(.4);}
+.ham-btn.open .ham-lines i:nth-child(3){transform:translateY(-6px) rotate(-45deg);}
 .qmenu, .qmenu-backdrop{display:none !important;}
 .hero-card{position:relative;}
 .live-pill{position:absolute; top:12px; inset-inline-start:12px; z-index:2;
@@ -1154,6 +1161,7 @@ function closeSheet(){
   const sh=document.getElementById('sheet'), bd=document.getElementById('sheetBackdrop');
   bd.classList.remove('show'); sh.classList.remove('show');
   sheetCloseT=setTimeout(()=>{ bd.style.display='none'; sh.style.display='none'; sh.innerHTML=''; },300);
+  const hb=document.getElementById('hamBtn'); if(hb) hb.classList.remove('open');
   if(sheetOnClose){ const f=sheetOnClose; sheetOnClose=null; f(); }
 }
 function confirmDialog(msg, danger){
@@ -1233,6 +1241,26 @@ function fabAction(){
   if(UI.screen==='docs') return openUploadSheet();
   if(UI.screen==='budget'){ if(!activeTrip()){ toast('קודם ניצור טיול'); return; } return openExpenseForm(); }
   openQuickAdd();
+}
+function hamburgerBtn(kind){
+  return `<button class="icon-btn ham-btn" id="hamBtn" onclick="openHamMenu('${kind}')" aria-label="תפריט">
+    <span class="ham-lines"><i></i><i></i><i></i></span></button>`;
+}
+function openHamMenu(kind){
+  const btn=document.getElementById('hamBtn');
+  if(btn) btn.classList.add('open');
+  if(kind==='itinerary') openItinMenu(); else openMainMenu();
+}
+function openItinMenu(){
+  const t=activeTrip(); if(!t) return;
+  openSheet('תפריט המסלול', [
+    ['home','דשבורד', `navSub('home','itinerary')`],
+    ['sun','היום', `openToday()`],
+    ['calendar','מצב תכנון', `openPlanning()`],
+    ['sliders','ניהול יעדים', `openDestManager()`]
+  ].map(([icon,label,fn])=>
+    `<div class="list-row press" onclick="closeSheet(); ${fn}"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic(icon,19)}</span><div class="lr-body"><div class="lr-title">${label}</div></div></div>`
+  ).join(''));
 }
 function openMainMenu(){
   openSheet('תפריט', [
@@ -1354,7 +1382,7 @@ function screenTrips(){
     t.destinations.some(d=>(d.name||'').toLowerCase().includes(q));
   const live=S.trips.filter(t=>!t.archived && match(t));
   const arch=S.trips.filter(t=>t.archived && match(t));
-  let html=topBar('טיולים', 'כל ההרפתקאות במקום אחד', `<button class="icon-btn" onclick="openMainMenu()" aria-label="תפריט" style="font-size:19px;font-weight:600">☰</button>`);
+  let html=topBar('טיולים', 'כל ההרפתקאות במקום אחד', hamburgerBtn('trips'));
   if(typeof CloudSync!=='undefined' && sbBase() && !Auth.session){
     html+=`<div class="card pad press" style="margin-top:12px;background:var(--accent-soft);border-color:transparent" onclick="openAuthSheet()">
       <div style="display:flex;align-items:center;gap:11px">
@@ -1570,10 +1598,7 @@ function screenItinerary(){
   const t=activeTrip();
   let html=topBar(t?esc(t.name):'מסלול', t?'מסלול · יעדים וימים':'בחר טיול מרשימת הטיולים',
     `<button class="icon-btn" onclick="go('trips')" aria-label="חזרה לטיולים" style="font-size:22px;font-weight:700;line-height:1">›</button>`+
-    (t?`<button class="icon-btn" onclick="navSub('home','itinerary')" aria-label="דשבורד">${ic('home',19)}</button>
-       <button class="icon-btn" onclick="openToday()" aria-label="היום">${ic('sun',19)}</button>
-       <button class="icon-btn" onclick="openPlanning()" aria-label="מצב תכנון">${ic('calendar',19)}</button>
-       <button class="icon-btn" onclick="openDestManager()" aria-label="ניהול יעדים">${ic('sliders',19)}</button>`:''));
+    (t?hamburgerBtn('itinerary'):''));
   if(!t) return html+emptyState('calendar','אין טיול פעיל','בחר טיול או צור אחד חדש כדי לבנות מסלול',
     `<button class="btn btn-primary" onclick="go('trips')">למסך הטיולים</button>`);
   if(!t.destinations.length)
@@ -2327,7 +2352,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.4 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.4.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2570,7 +2595,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.4</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.4.1</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -5871,7 +5896,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.4';
+const BUILD='4.4.1';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
@@ -5923,7 +5948,7 @@ async function checkForUpdate(manual){
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkForUpdate(false); });
   }catch(e){}
 })();
-Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump,Undo,checkForUpdate,applyUpdate,attachEventDoc,removeEventDoc,attachHotelDoc,docFolderForEvType,commitDocFromFile});
+Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump,Undo,checkForUpdate,applyUpdate,attachEventDoc,removeEventDoc,attachHotelDoc,docFolderForEvType,commitDocFromFile,hamburgerBtn,openHamMenu,openItinMenu});
 /* ==== END VOYAGE CORE ==== */
 </script>
 </body>
