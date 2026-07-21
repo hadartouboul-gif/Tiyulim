@@ -1229,6 +1229,16 @@ function renderNav(){
     </button>`).join('');
 }
 function fabAction(){ openQuickAdd(); }
+function openMainMenu(){
+  openSheet('תפריט', [
+      `<div class="list-row press" onclick="closeSheet(); openTripForm()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('plus',20)}</span><div class="lr-body"><div class="lr-title">טיול חדש</div></div></div>`,
+      `<div class="list-row press" onclick="closeSheet(); (typeof Auth!=='undefined'&&Auth.session)?openAccountSheet():openAuthSheet()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('user',19)}</span><div class="lr-body"><div class="lr-title">חשבון</div></div></div>`,
+      `<div class="list-row press" onclick="closeSheet(); openShareHub()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('share',19)}</span><div class="lr-body"><div class="lr-title">שיתוף והצטרפות</div></div></div>`,
+      `<div class="list-row press" onclick="closeSheet(); openGlobalSearch()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('search',19)}</span><div class="lr-body"><div class="lr-title">חיפוש</div></div></div>`,
+      `<div class="list-row press" onclick="closeSheet(); toggleTheme()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic(resolvedTheme()==='dark'?'sun':'moon',19)}</span><div class="lr-body"><div class="lr-title">מצב תצוגה</div></div></div>`,
+  ].join(''));
+}
+Object.assign(window,{openMainMenu});
 function openTripItinerary(id){
   S.activeTripId=id;
   UI.destId=null; UI.dayId=null; UI.__dayInit=false;
@@ -1337,12 +1347,7 @@ function screenTrips(){
     t.destinations.some(d=>(d.name||'').toLowerCase().includes(q));
   const live=S.trips.filter(t=>!t.archived && match(t));
   const arch=S.trips.filter(t=>t.archived && match(t));
-  let html=topBar('טיולים','כל ההרפתקאות במקום אחד',
-    `<button class="icon-btn" onclick="openTripForm()" aria-label="טיול חדש">${ic('plus',20)}</button>
-       <button class="icon-btn" style="${(typeof Auth!=='undefined'&&Auth.session)?'color:var(--green);border-color:var(--green)':''}" onclick="(typeof Auth!=='undefined'&&Auth.session)?openAccountSheet():openAuthSheet()" aria-label="חשבון">${ic('user',19)}</button>
-     <button class="icon-btn" onclick="openShareHub()" aria-label="שיתוף והצטרפות">${ic('share',19)}</button>
-     <button class="icon-btn" onclick="openGlobalSearch()" aria-label="חיפוש">${ic('search',19)}</button>
-     <button class="icon-btn" onclick="toggleTheme()" aria-label="מצב תצוגה">${ic(resolvedTheme()==='dark'?'sun':'moon',19)}</button>`);
+  let html=topBar('טיולים', 'כל ההרפתקאות במקום אחד', `<button class="icon-btn" onclick="openMainMenu()" aria-label="תפריט" style="font-size:19px;font-weight:600">☰</button>`);
   if(typeof CloudSync!=='undefined' && sbBase() && !Auth.session){
     html+=`<div class="card pad press" style="margin-top:12px;background:var(--accent-soft);border-color:transparent" onclick="openAuthSheet()">
       <div style="display:flex;align-items:center;gap:11px">
@@ -2261,7 +2266,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.3.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2504,7 +2509,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.3</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.3.1</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -5783,7 +5788,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.3';
+const BUILD='4.3.1';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
