@@ -190,7 +190,7 @@ html[dir=rtl] .fab{inset-inline-start:auto; inset-inline-end:20px; transform:non
 .nav-item.active .nav-pill{background:var(--accent-soft);}
 
 /* ---------- chips / pills ---------- */
-.chips{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 10px; scrollbar-width:none;}
+.chips{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 10px; scrollbar-width:none; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain;}
 .chips::-webkit-scrollbar{display:none;}
 .chip{
   flex-shrink:0; border:1px solid var(--line); background:var(--card);
@@ -1228,10 +1228,14 @@ function renderNav(){
       <span class="nav-pill">${ic(n.icon,22)}</span><span>${n.label}</span>
     </button>`).join('');
 }
-function fabAction(){ openQuickAdd(); }
+function fabAction(){
+  if(UI.screen==='trips') return openTripForm();
+  if(UI.screen==='docs') return openUploadSheet();
+  if(UI.screen==='budget'){ if(!activeTrip()){ toast('קודם ניצור טיול'); return; } return openExpenseForm(); }
+  openQuickAdd();
+}
 function openMainMenu(){
   openSheet('תפריט', [
-      `<div class="list-row press" onclick="closeSheet(); openTripForm()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('plus',20)}</span><div class="lr-body"><div class="lr-title">טיול חדש</div></div></div>`,
       `<div class="list-row press" onclick="closeSheet(); (typeof Auth!=='undefined'&&Auth.session)?openAccountSheet():openAuthSheet()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('user',19)}</span><div class="lr-body"><div class="lr-title">חשבון</div></div></div>`,
       `<div class="list-row press" onclick="closeSheet(); openShareHub()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('share',19)}</span><div class="lr-body"><div class="lr-title">שיתוף והצטרפות</div></div></div>`,
       `<div class="list-row press" onclick="closeSheet(); openGlobalSearch()"><span class="lr-ic" style="background:var(--line2);color:var(--ink)">${ic('search',19)}</span><div class="lr-body"><div class="lr-title">חיפוש</div></div></div>`,
@@ -1257,13 +1261,15 @@ function render(){
   renderNav();
   const fab=document.getElementById('fab');
   if(!fab.querySelector('.ic')) fab.innerHTML=ic('plus',26,2.2);
-  fab.classList.toggle('hide', UI.screen==='trips');
+  fab.classList.remove('hide');
   const viewKey=UI.screen+'|'+(UI.destId||'')+'|'+(UI.dayId||'')+'|'+(UI.moreView||'');
   const sameView=(window.__viewKey===viewKey);
   window.__viewKey=viewKey;
   const sy=window.scrollY;
   const phCache={};
   el.querySelectorAll('img[id^="ph-"]').forEach(i=>{ if(i.src) phCache[i.id]=i.src; });
+  const hsCache={};
+  el.querySelectorAll('[data-hscroll]').forEach(n=>{ hsCache[n.getAttribute('data-hscroll')]=n.scrollLeft; });
   let html='';
   if(UI.screen==='trips') html=screenTrips();
   else if(UI.screen==='itinerary') html=screenItinerary();
@@ -1280,6 +1286,7 @@ function render(){
   el.classList.toggle('no-anim', sameView);
   el.innerHTML=html;
   Object.keys(phCache).forEach(pid=>{ const n=document.getElementById(pid); if(n && !n.src) n.src=phCache[pid]; });
+  Object.keys(hsCache).forEach(k=>{ el.querySelectorAll('[data-hscroll="'+k+'"]').forEach(n=>{ n.scrollLeft=hsCache[k]; }); });
   if(sameView) window.scrollTo(0, sy);
   afterRender();
 }
@@ -1578,7 +1585,7 @@ function screenItinerary(){
     if(dd){ const dy=(dd.days||[]).find(x=>x.date===todayStr()); if(dy){ UI.destId=dd.id; UI.dayId=dy.id; } }
   }
   const dest=currentDest(), day=currentDay();
-  html+=`<div class="chips" style="margin-top:8px;">
+  html+=`<div class="chips" id="destChips" data-hscroll="destChips" style="margin-top:8px;">
     ${t.destinations.map(d=>`<button class="chip ${d.id===dest.id?'active':''}" onclick="UI.destId='${d.id}';UI.dayId=null;render()">
       ${esc(d.name)||'ללא שם'} <span class="dest-chip-dates">${fmtD(d.startDate)}–${fmtD(d.endDate)}</span></button>`).join('')}
     <button class="chip" onclick="openDestForm()">${ic('plus',15)} יעד</button>
@@ -1816,6 +1823,7 @@ function openEventForm(id, preset){
   const e=id? day.events.find(x=>x.id===id):null;
   window.__evEditingId=id||'';
   window.__evType=e?e.type:(preset||'attraction');
+  window.__evDocIds=(e&&e.docIds)?e.docIds.slice():[];
   openSheet(e?'עריכת אירוע':'אירוע חדש', `
     <div class="field"><label>סוג</label>
       <div class="type-grid" id="typeGrid">${EVENT_TYPES.map(t=>`
@@ -1831,6 +1839,11 @@ function openEventForm(id, preset){
     </div>
     <div class="field"><label>כתובת / מיקום</label>
       <input class="inp" id="ef-addr" placeholder="לניווט במפות" value="${e?esc(e.address||''):''}"></div>
+    <div class="field"><label>מסמכים מצורפים</label>
+      <div id="ef-docs">${evDocsListHTML(window.__evDocIds)}</div>
+      <input type="file" id="ef-doc-file" style="display:none" onchange="attachEventDoc()">
+      <button type="button" class="btn btn-soft btn-sm" onclick="document.getElementById('ef-doc-file').click()">${ic('upload',15)} הוספת מסמך</button>
+      <p class="mini-note" style="margin-top:6px">המסמך יסומן כתקף לתאריך ${fmtD(day.date)}.</p></div>
     <div class="row2">
       <div class="field"><label>עלות משוערת</label><input class="inp" type="number" min="0" id="ef-est" value="${e?esc(e.estCost||''):''}"></div>
       <div class="field"><label>עלות בפועל</label><input class="inp" type="number" min="0" id="ef-act" value="${e?esc(e.actualCost||''):''}"></div>
@@ -1867,6 +1880,39 @@ function pickEvType(t){
   document.querySelectorAll('#typeGrid .type-cell').forEach(c=>c.classList.toggle('sel',c.dataset.t===t));
   haptic();
 }
+function evDocsListHTML(ids, readonly){
+  const docs=(ids||[]).map(id=>S.docs.find(d=>d.id===id)).filter(Boolean);
+  if(!docs.length) return readonly?'':`<p class="mini-note" style="margin:0 0 8px">אין עדיין מסמכים מצורפים</p>`;
+  return docs.map(d=>`<div class="list-row" style="padding:8px 10px;margin-bottom:6px;background:var(--card2);border-radius:12px;cursor:default">
+    <span class="lr-ic" style="width:30px;height:30px;background:var(--line2);color:var(--ink2)">${ic('file',14)}</span>
+    <div class="lr-body" style="cursor:pointer" onclick="openDoc('${d.id}')"><div class="lr-title" style="font-size:12.5px">${esc(d.name)}</div></div>
+    ${readonly?'':`<button class="icon-btn plain" onclick="removeEventDoc('${d.id}')" aria-label="הסרה">${ic('x',15)}</button>`}
+  </div>`).join('');
+}
+async function attachEventDoc(){
+  const inp=document.getElementById('ef-doc-file');
+  const f=inp.files[0]; if(!f) return;
+  const day=currentDay(); const t=activeTrip();
+  try{
+    const {doc}=await commitDocFromFile(f, {
+      folder:docFolderForEvType(window.__evType),
+      tripId:(t&&t.id)||'',
+      dateFrom:day?day.date:'', dateTo:day?day.date:''});
+    window.__evDocIds=(window.__evDocIds||[]).concat(doc.id);
+    const box=document.getElementById('ef-docs');
+    if(box) box.innerHTML=evDocsListHTML(window.__evDocIds);
+    save('המסמך צורף ✓');
+  }catch(e){
+    console.error(e);
+    toast(e.code==='too-large'?'הקובץ גדול מ-3.5MB':'צירוף המסמך נכשל');
+  }
+  inp.value='';
+}
+function removeEventDoc(docId){
+  window.__evDocIds=(window.__evDocIds||[]).filter(x=>x!==docId);
+  const box=document.getElementById('ef-docs');
+  if(box) box.innerHTML=evDocsListHTML(window.__evDocIds);
+}
 function saveEventForm(id, again){
   const day=currentDay(); if(!day) return;
   const g=x=>document.getElementById(x).value;
@@ -1877,7 +1923,7 @@ function saveEventForm(id, again){
     estCost:g('ef-est'), actualCost:g('ef-act'),
     website:g('ef-web').trim(), phone:g('ef-phone').trim(),
     bookingRef:g('ef-book').trim(), priority:g('ef-pri'),
-    notes:g('ef-notes') };
+    notes:g('ef-notes'), docIds:(window.__evDocIds||[]).slice() };
   if(id){
     Object.assign(day.events.find(x=>x.id===id), data);
     sortDayEvents(day);
@@ -1925,6 +1971,7 @@ function openEventDetail(id){
     ${rows.length?`<div class="detail-grid">${rows.map(r=>`<span class="dk">${r[0]}</span><span class="dv">${r[1]}</span>`).join('')}</div>`:''}
     ${e.notes?`<div class="card pad" style="margin-top:14px;background:var(--card2);font-size:14px;white-space:pre-wrap;">${esc(e.notes)}</div>`:''}
     ${links.length?`<div class="link-row">${links.join('')}</div>`:''}
+    ${(e.docIds&&e.docIds.length)?`<div class="section-label" style="margin-top:14px">מסמכים מצורפים</div>${evDocsListHTML(e.docIds, true)}`:''}
     ${e.type==='flight'?`<button class="btn btn-soft btn-block" style="margin-top:14px" onclick="closeSheet(); openFlightTracker('${e.id}')">${ic('flight',17)} מעקב טיסה — טרמינל, שער ועלייה למטוס</button>`:''}
     <hr class="hr">
     <div class="row2" style="margin-bottom:10px">
@@ -1972,7 +2019,7 @@ function screenDocs(){
   html+=`<div class="search-wrap">${ic('search',18)}
     <input class="inp" placeholder="חיפוש מסמך…" value="${esc(UI.docSearch)}"
       oninput="UI.docSearch=this.value; render(); this.focus(); this.setSelectionRange(this.value.length,this.value.length);"></div>`;
-  html+=`<div class="chips">${folders.map(f=>`
+  html+=`<div class="chips" id="docFolderChips" data-hscroll="docFolderChips">${folders.map(f=>`
     <button class="chip ${UI.docFolder===f.id?'active':''}" onclick="UI.docFolder='${f.id}';render()">${ic(f.icon,15)} ${f.label}</button>`).join('')}</div>`;
   const q=UI.docSearch.trim().toLowerCase();
   let docs=S.docs.filter(d=>
@@ -2010,27 +2057,41 @@ function openUploadSheet(){
     <button class="btn btn-primary btn-block" id="up-btn" onclick="doUpload()">${ic('upload',18)} העלאה</button>
     <p class="mini-note">עד ~3.5MB לקובץ · הקבצים נשמרים מקומית בדפדפן (IndexedDB) וזמינים גם ללא חיבור לרשת.</p>`);
 }
+function readFileAsDataURL(f){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result); r.onerror=()=>rej(new Error('read fail'));
+    r.readAsDataURL(f);
+  });
+}
+async function commitDocFromFile(f, meta){
+  if(f.size>3.5*1048576){ const e=new Error('too-large'); e.code='too-large'; throw e; }
+  const dataUrl=await readFileAsDataURL(f);
+  const id=uid();
+  const stored=await FileStore.put('tp-doc-'+id, dataUrl);
+  const doc=Object.assign({id, key:'tp-doc-'+id, name:f.name,
+    size:f.size, type:f.type||'', fav:false, createdAt:Date.now()}, meta);
+  S.docs.push(doc);
+  return {doc, stored};
+}
+function docFolderForEvType(ty){
+  const et=EVENT_TYPES.find(x=>x.id===ty);
+  const map={flights:'flights', transport:'transport', hotels:'hotels', food:'restaurants'};
+  return (et && map[et.bcat]) || 'general';
+}
 async function doUpload(){
   const f=document.getElementById('up-file').files[0];
   if(!f){ toast('בחר קובץ'); return; }
-  if(f.size>3.5*1048576){ toast('הקובץ גדול מ-3.5MB'); return; }
   const btn=document.getElementById('up-btn');
   btn.disabled=true; btn.textContent='מעלה…';
   try{
-    const dataUrl=await new Promise((res,rej)=>{
-      const r=new FileReader();
-      r.onload=()=>res(r.result); r.onerror=()=>rej(new Error('read fail'));
-      r.readAsDataURL(f);
-    });
-    const id=uid();
-    const stored=await FileStore.put('tp-doc-'+id, dataUrl);
-    S.docs.push({id, key:'tp-doc-'+id, name:f.name,
+    const {stored}=await commitDocFromFile(f, {
       folder:document.getElementById('up-folder').value,
-      tripId:document.getElementById('up-trip').value,
-      size:f.size, type:f.type||'', fav:false, createdAt:Date.now()});
+      tripId:document.getElementById('up-trip').value});
     save(stored?'המסמך הועלה':'הועלה (שמירה זמנית בסביבה זו)'); closeSheet(); render();
   }catch(e){
-    console.error(e); toast('ההעלאה נכשלה');
+    console.error(e);
+    toast(e.code==='too-large'?'הקובץ גדול מ-3.5MB':'ההעלאה נכשלה');
     btn.disabled=false; btn.textContent='העלאה';
   }
 }
@@ -2266,7 +2327,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.3.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.4 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2509,7 +2570,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.3.1</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.4</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -2777,6 +2838,7 @@ function ensureShapes(){
     if(!t.hotels) t.hotels=[];
     t.destinations.forEach(d=>d.days.forEach(day=>{
       if(!day.journal) day.journal={notes:'',mood:null,rating:0,photos:[]};
+      day.events.forEach(e=>{ if(!e.docIds) e.docIds=[]; });
     }));
   });
 }
@@ -4142,13 +4204,34 @@ function openHotelForm(bookingId, defaultDate){
       <select class="inp" id="hf-doc">
         <option value="">— ללא —</option>${docOpts}
       </select>
-      <p class="mini-note" style="margin-top:6px">אין את הקובץ כאן? העלה אותו דרך הארנק (תיקיית מלונות) ואז חזור לכאן.</p></div>
+      <input type="file" id="hf-doc-file" style="display:none" onchange="attachHotelDoc('${bookingId||''}')">
+      <button type="button" class="btn btn-soft btn-sm" style="margin-top:8px" onclick="document.getElementById('hf-doc-file').click()">${ic('upload',15)} העלאת קובץ חדש</button></div>
     <div class="field"><label>הערות</label>
       <textarea class="inp" id="hf-notes" placeholder="קומה גבוהה, ארוחת בוקר כלולה…">${b?esc(b.notes||''):''}</textarea></div>
     <button class="btn btn-primary btn-block" onclick="saveHotelBooking('${bookingId||''}')">${b?'שמירת שינויים':'שמירת ההזמנה'}</button>
     <p class="mini-note">ההזמנה תופיע אוטומטית בכל הימים שבטווח — צ׳ק-אין, לינה, וצ׳ק-אאוט. עריכה או מחיקה כאן מתעדכנת בכל הימים.</p>
   `);
   recalcHotelNights();
+}
+async function attachHotelDoc(bookingId){
+  const inp=document.getElementById('hf-doc-file');
+  const f=inp.files[0]; if(!f) return;
+  const t=activeTrip(); if(!t) return;
+  const ci=document.getElementById('hf-in').value, co=document.getElementById('hf-out').value;
+  try{
+    const {doc}=await commitDocFromFile(f, {folder:'hotels', tripId:t.id, dateFrom:ci, dateTo:co});
+    const sel=document.getElementById('hf-doc');
+    if(sel){
+      const opt=document.createElement('option');
+      opt.value=doc.id; opt.textContent=doc.name; opt.selected=true;
+      sel.appendChild(opt); sel.value=doc.id;
+    }
+    save('המסמך צורף ✓');
+  }catch(e){
+    console.error(e);
+    toast(e.code==='too-large'?'הקובץ גדול מ-3.5MB':'צירוף המסמך נכשל');
+  }
+  inp.value='';
 }
 function saveHotelBooking(id){
   const t=activeTrip(); if(!t) return;
@@ -5788,7 +5871,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.3.1';
+const BUILD='4.4';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
@@ -5840,7 +5923,7 @@ async function checkForUpdate(manual){
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkForUpdate(false); });
   }catch(e){}
 })();
-Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump,Undo,checkForUpdate,applyUpdate});
+Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump,Undo,checkForUpdate,applyUpdate,attachEventDoc,removeEventDoc,attachHotelDoc,docFolderForEvType,commitDocFromFile});
 /* ==== END VOYAGE CORE ==== */
 </script>
 </body>
