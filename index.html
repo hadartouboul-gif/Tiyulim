@@ -576,6 +576,10 @@ html[data-theme=dark] .map-box{background:#151A21;}
 
 
 /* ==== VOYAGE PHASE 3 · POLISH ==== */
+.seg2{display:flex; gap:6px;}
+.seg2-opt{flex:1; padding:9px 0; border-radius:11px; border:1px solid var(--line); background:var(--card2);
+  color:var(--ink2); font-size:12.5px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:5px;}
+.seg2-opt.active{background:var(--ink); color:var(--bg); border-color:var(--ink);}
 .ham-btn{position:relative;}
 .ham-lines{display:inline-flex; flex-direction:column; justify-content:center; gap:4px; width:17px; height:13px; position:relative;}
 .ham-lines i{display:block; height:2px; border-radius:2px; background:currentColor;
@@ -1044,8 +1048,14 @@ const FileStore=(()=>{
     return new Promise((res,rej)=>{
       const tx=db.transaction('files',rw);
       const rq=fn(tx.objectStore('files'));
-      rq.onsuccess=()=>res(rq.result);
+      let result;
+      rq.onsuccess=()=>{ result=rq.result; };
       rq.onerror=()=>rej(rq.error||new Error('idb op failed'));
+      /* מחכים לסיום האמיתי של הטרנזקציה (commit לדיסק), לא רק להצלחת הבקשה —
+         ב-Safari/PWA ל-iOS יש פער ידוע בין 'הבקשה הצליחה' ל'זה באמת נשמר',
+         במיוחד כשהאפליקציה עוברת לרקע מיד אחרי העלאה. זה שורש התקלה. */
+      tx.oncomplete=()=>res(result);
+      tx.onabort=()=>rej(tx.error||new Error('idb transaction aborted'));
     });
   }
   async function put(key,val){
@@ -1861,6 +1871,7 @@ function openEventForm(id, preset){
   window.__evEditingId=id||'';
   window.__evType=e?e.type:(preset||'attraction');
   window.__evDocIds=(e&&e.docIds)?e.docIds.slice():[];
+  window.__evPaidDefault=!!(e&&e.actualCost);
   openSheet(e?'עריכת אירוע':'אירוע חדש', `
     <div class="field"><label>סוג</label>
       <div class="type-grid" id="typeGrid">${EVENT_TYPES.map(t=>`
@@ -1881,10 +1892,8 @@ function openEventForm(id, preset){
       <input type="file" id="ef-doc-file" style="display:none" onchange="attachEventDoc()">
       <button type="button" class="btn btn-soft btn-sm" onclick="document.getElementById('ef-doc-file').click()">${ic('upload',15)} הוספת מסמך</button>
       <p class="mini-note" style="margin-top:6px">המסמך יסומן כתקף לתאריך ${fmtD(day.date)}.</p></div>
-    <div class="row2">
-      <div class="field"><label>עלות משוערת</label><input class="inp" type="number" min="0" id="ef-est" value="${e?esc(e.estCost||''):''}"></div>
-      <div class="field"><label>עלות בפועל</label><input class="inp" type="number" min="0" id="ef-act" value="${e?esc(e.actualCost||''):''}"></div>
-    </div>
+    <div class="field"><label>עלות</label><input class="inp" type="number" min="0" id="ef-cost" value="${e?esc(e.actualCost||e.estCost||''):''}"></div>
+    ${payToggleHTML('ef-pay-seg', !!(e&&e.actualCost))}
     <div class="row2">
       <div class="field"><label>אתר אינטרנט</label><input class="inp" id="ef-web" placeholder="https://" value="${e?esc(e.website||''):''}"></div>
       <div class="field"><label>טלפון</label><input class="inp" id="ef-phone" value="${e?esc(e.phone||''):''}"></div>
@@ -1916,6 +1925,24 @@ function pickEvType(t){
   window.__evType=t;
   document.querySelectorAll('#typeGrid .type-cell').forEach(c=>c.classList.toggle('sel',c.dataset.t===t));
   haptic();
+}
+function payToggleHTML(id, isPaid){
+  return `<div class="field"><label>סטטוס תשלום</label>
+    <div class="seg2" id="${id}" data-val="${isPaid?'paid':'planned'}">
+      <button type="button" class="seg2-opt ${isPaid?'active':''}" onclick="setPayToggle('${id}',true)">${ic('check',14)} שולם</button>
+      <button type="button" class="seg2-opt ${!isPaid?'active':''}" onclick="setPayToggle('${id}',false)">${ic('calendar',14)} מתוכנן</button>
+    </div></div>`;
+}
+function setPayToggle(id, val){
+  const el=document.getElementById(id); if(!el) return;
+  el.setAttribute('data-val', val?'paid':'planned');
+  const opts=el.querySelectorAll('.seg2-opt');
+  if(opts[0]) opts[0].classList.toggle('active', val);
+  if(opts[1]) opts[1].classList.toggle('active', !val);
+}
+function getPayToggle(id){
+  const el=document.getElementById(id);
+  return el ? el.getAttribute('data-val')==='paid' : true;
 }
 function evDocsListHTML(ids, readonly){
   const docs=(ids||[]).map(id=>S.docs.find(d=>d.id===id)).filter(Boolean);
@@ -1957,10 +1984,13 @@ function saveEventForm(id, again){
   if(!title){ toast('תן כותרת לאירוע'); return; }
   const data={ type:window.__evType, title,
     time:g('ef-time'), duration:g('ef-dur'), address:g('ef-addr').trim(),
-    estCost:g('ef-est'), actualCost:g('ef-act'),
     website:g('ef-web').trim(), phone:g('ef-phone').trim(),
     bookingRef:g('ef-book').trim(), priority:g('ef-pri'),
     notes:g('ef-notes'), docIds:(window.__evDocIds||[]).slice() };
+  const costAmt=+g('ef-cost')||0;
+  const isPaid=getPayToggle('ef-pay-seg');
+  data.actualCost=isPaid?costAmt:0;
+  data.estCost=isPaid?0:costAmt;
   if(id){
     Object.assign(day.events.find(x=>x.id===id), data);
     sortDayEvents(day);
@@ -2105,8 +2135,10 @@ async function commitDocFromFile(f, meta){
   if(f.size>3.5*1048576){ const e=new Error('too-large'); e.code='too-large'; throw e; }
   const dataUrl=await readFileAsDataURL(f);
   const id=uid();
-  const stored=await FileStore.put('tp-doc-'+id, dataUrl);
-  const doc=Object.assign({id, key:'tp-doc-'+id, name:f.name,
+  const key='tp-doc-'+id;
+  let stored=false;
+  try{ stored=await FileStore.put(key, dataUrl); }catch(e){ console.error('[FileStore.put]',e); }
+  const doc=Object.assign({id, key, name:f.name,
     size:f.size, type:f.type||'', fav:false, createdAt:Date.now()}, meta);
   S.docs.push(doc);
   return {doc, stored};
@@ -2136,7 +2168,15 @@ async function openDoc(id, download){
   const d=S.docs.find(x=>x.id===id); if(!d) return;
   try{
     const val=await FileStore.get(d.key);
-    if(!val){ toast('הקובץ לא נמצא'); return; }
+    if(!val){
+      openSheet('הקובץ לא נמצא', `
+        <p style="color:var(--ink2);font-size:13.5px;line-height:1.6">
+          תוכן הקובץ "${esc(d.name)}" לא נשמר בהצלחה באחסון המכשיר בזמן ההעלאה (תקלה שתוקנה בגרסה נוכחית).
+          הרשומה עצמה נשארה ברשימה, אך אין מה לפתוח. אפשר להעלות את הקובץ מחדש.</p>
+        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="closeSheet(); removeBrokenDoc('${d.id}')">מחיקת הרשומה והעלאה מחדש</button>
+        <button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="closeSheet()">סגירה</button>`);
+      return;
+    }
     const parts=val.split(',');
     const mime=(parts[0].match(/:(.*?);/)||[])[1]||'application/octet-stream';
     const bin=atob(parts[1]);
@@ -2217,10 +2257,12 @@ function budgetData(t){
     cats[cat].act+=(+e.actualCost||0);
     if(+e.actualCost) daily[day.date]=(daily[day.date]||0)+(+e.actualCost);
   });
-  (t.hotels||[]).forEach(b=>{ if(+b.price) cats.hotels.est+=(+b.price); });
+  (t.hotels||[]).forEach(b=>{ if(+b.price){ if(b.paid) cats.hotels.act+=(+b.price); else cats.hotels.est+=(+b.price); } });
   t.expenses.forEach(x=>{
-    cats[x.category||'misc'].act+=(+x.amount||0);
-    if(x.date) daily[x.date]=(daily[x.date]||0)+(+x.amount||0);
+    const isPaid=x.paid!==false;
+    const amt=+x.amount||0;
+    if(isPaid) cats[x.category||'misc'].act+=amt; else cats[x.category||'misc'].est+=amt;
+    if(isPaid && x.date) daily[x.date]=(daily[x.date]||0)+amt;
   });
   const est=Object.values(cats).reduce((s,c)=>s+c.est,0);
   const act=Object.values(cats).reduce((s,c)=>s+c.act,0);
@@ -2290,7 +2332,7 @@ function screenBudget(){
       return `<div class="list-row" style="cursor:default">
         <span class="lr-ic" style="background:${c.color}22;color:${c.color}">${ic('money',18)}</span>
         <div class="lr-body"><div class="lr-title">${esc(x.title)}</div>
-        <div class="lr-sub">${c.label}${x.date?' · '+fmtD(x.date):''}</div></div>
+        <div class="lr-sub">${c.label}${x.date?' · '+fmtD(x.date):''}${x.paid===false?' · <span style="color:var(--amber)">מתוכנן</span>':''}</div></div>
         <b style="font-size:14.5px">${money(+x.amount)}</b>
         <button class="icon-btn plain danger" onclick="deleteExpense('${x.id}')">${ic('trash',16)}</button>
       </div>`;}).join('')}</div>`;
@@ -2319,6 +2361,7 @@ function openExpenseForm(){
     </div>
     <div class="field"><label>קטגוריה</label>
       <select class="inp" id="xf-cat">${BUDGET_CATS.map(c=>`<option value="${c.id}">${c.label}</option>`).join('')}</select></div>
+    ${payToggleHTML('xf-pay-seg', true)}
     <button class="btn btn-primary btn-block" onclick="saveExpense()">הוספה</button>`);
 }
 function saveExpense(){
@@ -2328,7 +2371,8 @@ function saveExpense(){
   if(!title||!amount){ toast('מלא תיאור וסכום'); return; }
   t.expenses.push({id:uid(), title, amount,
     category:document.getElementById('xf-cat').value,
-    date:document.getElementById('xf-date').value});
+    date:document.getElementById('xf-date').value,
+    paid:getPayToggle('xf-pay-seg')});
   save('נוספה הוצאה'); closeSheet(); render();
 }
 function deleteExpense(id){
@@ -2371,7 +2415,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.5.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.6.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2614,7 +2658,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.5.1</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.6.1</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -4304,6 +4348,7 @@ function openHotelForm(bookingId, defaultDate){
       <div class="field"><label>מס׳ הזמנה</label><input class="inp" id="hf-ref" value="${b?esc(b.bookingRef||''):''}"></div>
       <div class="field"><label>מחיר לכל השהות</label><input class="inp" type="number" min="0" id="hf-price" value="${b?esc(b.price||''):''}"></div>
     </div>
+    ${payToggleHTML('hf-pay-seg', !!(b&&b.paid))}
     <div class="row2">
       <div class="field"><label>אתר</label><input class="inp" id="hf-web" placeholder="https://" value="${b?esc(b.website||''):''}"></div>
       <div class="field"><label>טלפון</label><input class="inp" type="tel" id="hf-phone" value="${b?esc(b.phone||''):''}"></div>
@@ -4351,7 +4396,7 @@ function saveHotelBooking(id){
   const data={name, checkIn:ci, checkOut:co,
     checkInTime:g('hf-tin'), checkOutTime:g('hf-tout'),
     address:g('hf-addr').trim(), bookingRef:g('hf-ref').trim(),
-    price:g('hf-price'), website:g('hf-web').trim(), phone:g('hf-phone').trim(),
+    price:g('hf-price'), paid:getPayToggle('hf-pay-seg'), website:g('hf-web').trim(), phone:g('hf-phone').trim(),
     docId:g('hf-doc'), notes:g('hf-notes')};
   if(id){
     const b=(t.hotels||[]).find(x=>x.id===id);
@@ -5979,7 +6024,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.5.1';
+const BUILD='4.6.1';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
@@ -6031,7 +6076,12 @@ async function checkForUpdate(manual){
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkForUpdate(false); });
   }catch(e){}
 })();
-Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump,Undo,checkForUpdate,applyUpdate,attachEventDoc,removeEventDoc,attachHotelDoc,docFolderForEvType,commitDocFromFile,hamburgerBtn,openHamMenu,openItinMenu});
+function removeBrokenDoc(id){
+  const i=S.docs.findIndex(x=>x.id===id); if(i<0) return;
+  S.docs.splice(i,1);
+  save('הרשומה הוסרה'); render();
+}
+Object.assign(window,{openQuickAdd,openPlanning,planSelect,planDropTo,destSuggest,pickCity,citySearch,countryFlag,openToday,todayAdd,planJump,Undo,checkForUpdate,applyUpdate,attachEventDoc,removeEventDoc,attachHotelDoc,docFolderForEvType,commitDocFromFile,hamburgerBtn,openHamMenu,openItinMenu,setPayToggle,getPayToggle,removeBrokenDoc});
 /* ==== END VOYAGE CORE ==== */
 </script>
 </body>
