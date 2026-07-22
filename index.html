@@ -240,6 +240,10 @@ html[dir=rtl] .fab{inset-inline-start:auto; inset-inline-end:20px; transform:non
 .ev.dragging .ev-card{box-shadow:var(--sh-lg); transform:scale(1.02); border-color:var(--accent);}
 .ev-title{font-weight:700; font-size:14.5px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; overflow-wrap:anywhere; min-width:0;}
 .ev-meta{display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:3px; color:var(--ink2); font-size:12.5px;}
+.ev-note-preview{display:flex; align-items:flex-start; gap:5px; margin-top:5px; padding-top:6px;
+  border-top:1px solid var(--line2); color:var(--ink3); font-size:12px; line-height:1.4;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ev-note-preview svg{flex:none; margin-top:2px; opacity:.8;}
 .ev-meta span{display:inline-flex; align-items:center; gap:4px;}
 .ev-done .ev-title{text-decoration:line-through; color:var(--ink3);}
 .drag-handle{touch-action:none; cursor:grab; color:var(--ink3); padding:4px; margin:-4px;}
@@ -363,16 +367,14 @@ textarea.inp{resize:vertical; min-height:76px; line-height:1.55;}
   font-size:10.5px; font-weight:700; min-width:fit-content; transition:width .5s; flex-shrink:0;}
 .bar-fill-act{color:#fff; border-radius:8px 0 0 8px;}
 .bar-fill-act:last-child{border-radius:8px;}
-.bar-fill-est{background:repeating-linear-gradient(135deg, currentColor 0 2px, transparent 2px 7px);
-  background-color:var(--card); border:1.5px dashed currentColor; box-sizing:border-box;
+.bar-fill-est{background:var(--card2); border:1.5px solid currentColor; box-sizing:border-box;
   border-radius:0 8px 8px 0;}
 .bar-fill-est:first-child{border-radius:8px;}
-.bar-fill-est > span{background:var(--card); padding:0 2px; border-radius:4px;}
 .bcat-legend{display:flex; gap:16px; font-size:11.5px; color:var(--ink2); margin:2px 2px 8px;}
 .bcat-legend span{display:inline-flex; align-items:center; gap:5px;}
 .bcat-sw{width:11px; height:11px; border-radius:3px; display:inline-block;}
 .bcat-sw-act{background:var(--ink2);}
-.bcat-sw-est{background:var(--card); border:1.5px dashed var(--ink2); box-sizing:border-box;}
+.bcat-sw-est{background:var(--card2); border:1.5px solid var(--ink2); box-sizing:border-box;}
 
 .stat-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px;}
 .stat-grid>*{min-width:0;}
@@ -1733,6 +1735,7 @@ function eventRow(e,i){
         <div style="flex:1;min-width:0;">
           <div class="ev-title">${e.favorite?'<span style="color:var(--amber)">'+ic('star',14)+'</span>':''}${esc(e.title)||t.label} ${pill}</div>
           <div class="ev-meta">${meta.join('')||'<span style="color:var(--ink3)">'+t.label+'</span>'}</div>
+          ${(e.notes&&e.notes.trim())?`<div class="ev-note-preview">${ic('note',12)} ${esc(e.notes.replace(/\s+/g,' ').trim().slice(0,80))}${e.notes.trim().length>80?'…':''}</div>`:''}
         </div>
         <span class="drag-handle" onclick="event.stopPropagation()">${ic('grip',18)}</span>
       </div>
@@ -2307,7 +2310,7 @@ function screenBudget(){
       html+=`<div class="bar-row"><span class="bar-lbl">${c.label}</span>
         <div class="bar-track">
           ${act?`<div class="bar-fill bar-fill-act" style="width:${actPct}%;background:${c.color}">${money(act)}</div>`:''}
-          ${est?`<div class="bar-fill bar-fill-est" style="width:${estPct}%;border-color:${c.color};color:${c.color}"><span>${money(est)}</span></div>`:''}
+          ${est?`<div class="bar-fill bar-fill-est" style="width:${estPct}%;border-color:${c.color};color:${c.color}">${money(est)}</div>`:''}
         </div></div>`;
     });
     html+=`</div>`;
@@ -2415,7 +2418,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.6.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.6.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2658,7 +2661,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.6.1</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.6.3</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -6024,7 +6027,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.6.1';
+const BUILD='4.6.3';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
