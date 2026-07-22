@@ -578,6 +578,13 @@ html[data-theme=dark] .map-box{background:#151A21;}
 
 
 /* ==== VOYAGE PHASE 3 · POLISH ==== */
+#realMap.map-box{background:#E8EDF2;}
+#realMap .leaflet-container{font-family:inherit; background:#E8EDF2;}
+#realMap .leaflet-control-zoom a{color:#333; font-family:inherit;}
+#realMap .leaflet-popup-content{font-family:inherit; direction:rtl; text-align:right;}
+.map-marker{width:30px; height:30px; border-radius:50% 50% 50% 4px; transform:rotate(45deg);
+  display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px rgba(0,0,0,.3); border:2px solid #fff;}
+.map-marker svg{transform:rotate(-45deg); color:#fff;}
 .seg2{display:flex; gap:6px;}
 .seg2-opt{flex:1; padding:9px 0; border-radius:11px; border:1px solid var(--line); background:var(--card2);
   color:var(--ink2); font-size:12.5px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:5px;}
@@ -1322,6 +1329,11 @@ function render(){
   el.querySelectorAll('img[id^="ph-"]').forEach(i=>{ if(i.src) phCache[i.id]=i.src; });
   const hsCache={};
   el.querySelectorAll('[data-hscroll]').forEach(n=>{ hsCache[n.getAttribute('data-hscroll')]=n.scrollLeft; });
+  /* המפה החיה (Leaflet) לא שורדת innerHTML= רגיל — מנתקים אותה מה-DOM (לא הורסים) לפני המחיקה,
+     ומחזירים למקומה אחרי הבנייה מחדש אם עדיין באותו יעד/מסך, כדי שהתצוגה (זום/מיקום) לא תקפוץ בכל רענון רקע */
+  let savedMapNode=null;
+  const mapNodeBefore=document.getElementById('realMap');
+  if(mapNodeBefore && window.__leafletMap){ savedMapNode=mapNodeBefore; savedMapNode.remove(); }
   let html='';
   if(UI.screen==='trips') html=screenTrips();
   else if(UI.screen==='itinerary') html=screenItinerary();
@@ -1339,6 +1351,20 @@ function render(){
   el.innerHTML=html;
   Object.keys(phCache).forEach(pid=>{ const n=document.getElementById(pid); if(n && !n.src) n.src=phCache[pid]; });
   Object.keys(hsCache).forEach(k=>{ el.querySelectorAll('[data-hscroll="'+k+'"]').forEach(n=>{ n.scrollLeft=hsCache[k]; }); });
+  if(savedMapNode){
+    const slot=document.getElementById('realMap');
+    const dest=currentDest();
+    const stillSameMap=(UI.screen==='map' && window.__mapViewKey===((dest&&dest.id)||''));
+    if(slot && stillSameMap){
+      slot.replaceWith(savedMapNode);
+      if(window.__leafletMap.invalidateSize) window.__leafletMap.invalidateSize();
+      updateMapMarkers(false);
+    }else{
+      try{ window.__leafletMap.remove(); }catch(e){}
+      window.__leafletMap=null; window.__mapLayer=null;
+    }
+  }
+  if(UI.screen==='map' && !window.__leafletMap) requestAnimationFrame(initMapWidget);
   if(sameView) window.scrollTo(0, sy);
   afterRender();
 }
@@ -1995,12 +2021,15 @@ function saveEventForm(id, again){
   data.actualCost=isPaid?costAmt:0;
   data.estCost=isPaid?0:costAmt;
   if(id){
-    Object.assign(day.events.find(x=>x.id===id), data);
+    const ex=day.events.find(x=>x.id===id);
+    Object.assign(ex, data);
     sortDayEvents(day);
     save('נשמר'); closeSheet(); refreshDay();
+    geocodeEventLocation(ex);
     return;
   }
-  day.events.push(Object.assign({id:uid(), status:'upcoming', favorite:false}, data));
+  const created=Object.assign({id:uid(), status:'upcoming', favorite:false}, data);
+  day.events.push(created);
   sortDayEvents(day);
   if(again){
     const keepType=window.__evType;
@@ -2012,6 +2041,11 @@ function saveEventForm(id, again){
   }else{
     save('נשמר'); closeSheet(); refreshDay();
   }
+  geocodeEventLocation(created);
+}
+function geocodeEventLocation(e){
+  if(!e || !(e.address||'').trim()) return;
+  ensureGeocoded(e).then(changed=>{ if(changed){ save(); if(UI.screen==='map') updateMapMarkers(false); } });
 }
 function openEventDetail(id){
   const day=currentDay(); if(!day) return;
@@ -2418,7 +2452,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.6.3 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.7 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2661,7 +2695,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.6.3</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.7</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -3400,39 +3434,20 @@ function screenMap(){
   const filters=[{id:'all',label:'הכל',icon:'map',color:'var(--ink)'},...MAP_TYPES.map(id=>{const ty=evType(id);return {id,label:ty.label,icon:ty.icon,color:ty.color};})];
   html+=`<div class="chips">${filters.map(f=>`
     <button class="chip ${UI.mapFilter===f.id?'active':''}" onclick="UI.mapFilter='${f.id}';render()">${ic(f.icon,14)} ${f.label}</button>`).join('')}</div>`;
-  const items=[];
-  dest.days.forEach(day=>day.events.forEach(e=>{
-    if(MAP_TYPES.includes(e.type) && e.status!=='cancelled' && (UI.mapFilter==='all'||e.type===UI.mapFilter)) items.push({e,day});
-  }));
-  const pins=items.map(({e,day})=>{
-    const ty=evType(e.type);
-    const x=10+hsh(e.id+e.title)%78, y=16+(hsh(e.title+e.id)>>4)%64;
-    return `<div class="map-pin" style="left:${x}%;top:${y}%" onclick="mapOpenEv('${dest.id}','${day.id}','${e.id}')">
-      <span class="mp-dot" style="background:${ty.color}">${ic(ty.icon,14)}</span></div>`;
-  }).join('');
-  html+=`<div class="map-box">
-    <svg viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice" style="opacity:.95">
-      <rect width="400" height="300" fill="#E9EEF3"/>
-      <ellipse cx="72" cy="62" rx="58" ry="40" fill="#CFE5CC"/>
-      <ellipse cx="330" cy="240" rx="70" ry="46" fill="#CFE5CC"/>
-      <path d="M-10,206 C80,186 150,238 230,212 S360,176 410,200 L410,300 L-10,300 Z" fill="#BFD9EA"/>
-      <path d="M-10,70 L410,110" stroke="#fff" stroke-width="10" fill="none"/>
-      <path d="M120,-10 L180,310" stroke="#fff" stroke-width="10" fill="none"/>
-      <path d="M-10,160 L410,140" stroke="#fff" stroke-width="6" fill="none"/>
-      <path d="M280,-10 L250,310" stroke="#fff" stroke-width="6" fill="none"/>
-    </svg>
-    ${pins}
-    <span class="demo-tag map-note">מפת המחשה · חיבור Google / Apple Maps בהמשך</span>
-  </div>`;
+  const items=mapItemsFor(t, dest.id, UI.mapFilter);
+  html+=`<div id="realMap" class="map-box" dir="ltr"></div>
+  <div id="mapPendingNote" class="mini-note" style="text-align:center;min-height:0"></div>`;
   if(!items.length) html+=`<p class="mini-note" style="text-align:center">אין עדיין מקומות מסוג זה ב${esc(dest.name)} — הוסף מלונות, מסעדות ואטרקציות במסלול</p>`;
   else{
     html+=`<div class="section-label">${ic('pin',14)} במפה (${items.length})</div><div class="card" style="padding:2px 14px">`;
-    items.forEach(({e,day})=>{
-      const ty=evType(e.type);
-      html+=`<div class="list-row" onclick="mapOpenEv('${dest.id}','${day.id}','${e.id}')">
+    items.forEach(({kind,item,day})=>{
+      const ty=kind==='hotel'?{color:'#8250DF',icon:'hotel',label:'מלון'}:evType(item.type);
+      const pending=(item.address||'').trim() && typeof item.lat!=='number';
+      const openAct=kind==='hotel'?`openHotelDetail('${item.id}')`:`mapOpenEv('${dest.id}','${day.id}','${item.id}')`;
+      html+=`<div class="list-row" onclick="${openAct}">
         <span class="lr-ic" style="background:${ty.color}1e;color:${ty.color}">${ic(ty.icon,18)}</span>
-        <div class="lr-body"><div class="lr-title">${esc(e.title)}</div>
-        <div class="lr-sub">${fmtD(day.date)}${e.address?' · '+esc(e.address.slice(0,30)):''}</div></div>
+        <div class="lr-body"><div class="lr-title">${esc(item.name||item.title)||ty.label}${pending?' <span style="color:var(--ink3);font-weight:600;font-size:11px">· מאתר מיקום…</span>':''}</div>
+        <div class="lr-sub">${kind==='hotel'?(item.checkIn?fmtD(item.checkIn)+' – '+fmtD(item.checkOut):''):fmtD(day.date)}${item.address?' · '+esc(item.address.slice(0,30)):''}</div></div>
         ${ic('chevL',16)}
       </div>`;
     });
@@ -4401,13 +4416,18 @@ function saveHotelBooking(id){
     address:g('hf-addr').trim(), bookingRef:g('hf-ref').trim(),
     price:g('hf-price'), paid:getPayToggle('hf-pay-seg'), website:g('hf-web').trim(), phone:g('hf-phone').trim(),
     docId:g('hf-doc'), notes:g('hf-notes')};
+  let record;
   if(id){
-    const b=(t.hotels||[]).find(x=>x.id===id);
-    if(b) Object.assign(b,data);
+    record=(t.hotels||[]).find(x=>x.id===id);
+    if(record) Object.assign(record,data);
   }else{
-    t.hotels.push(Object.assign({id:uid()},data));
+    record=Object.assign({id:uid()},data);
+    t.hotels.push(record);
   }
   save('הזמנת המלון נשמרה'); closeSheet(); refreshDay();
+  if(record && (record.address||'').trim()){
+    ensureGeocoded(record).then(changed=>{ if(changed){ save(); if(UI.screen==='map') updateMapMarkers(false); } });
+  }
 }
 function openHotelDetail(id){
   const t=activeTrip(); if(!t) return;
@@ -5644,6 +5664,144 @@ function ptrProgress(d){ return Math.max(0, Math.min(1, d/PTR_TRIGGER)); }
 Object.assign(window,{refreshDay});
 </script>
 <script>
+/* ==== VOYAGE REAL MAP ====
+   מפה אמיתית — Leaflet + מרצפי OpenStreetMap (חינם, בלי מפתח API, בלי תלות בשירות
+   בתשלום שעלול להיסגר). גיאוקוד (כתובת→קואורדינטות) דרך Nominatim, פעם אחת לכל כתובת,
+   עם קאש על הפריט עצמו — כך שאחרי הטעינה הראשונה המפה עובדת גם בלי רשת. */
+let __geoQueue=Promise.resolve();
+function geocodeAddress(query){
+  __geoQueue=__geoQueue.then(async()=>{
+    try{
+      const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(query);
+      const r=await fetch(url,{headers:{'Accept-Language':'he,en'}});
+      if(!r.ok) return null;
+      const data=await r.json();
+      if(!data || !data[0]) return null;
+      const lat=+data[0].lat, lng=+data[0].lon;
+      return (isFinite(lat)&&isFinite(lng)) ? {lat,lng} : null;
+    }catch(e){ console.warn('[geocode]',query,e); return null; }
+  });
+  const result=__geoQueue;
+  __geoQueue=__geoQueue.then(()=>new Promise(res=>setTimeout(res,1100))); /* קצב מרבי: בקשה אחת לשנייה, כנדרש ע"י Nominatim */
+  return result;
+}
+async function ensureGeocoded(item){
+  const addr=(item.address||'').trim();
+  if(!addr) return false;
+  if(item.geoAddr===addr && typeof item.lat==='number' && typeof item.lng==='number') return false;
+  const pos=await geocodeAddress(addr);
+  if(!pos) return false;
+  item.lat=pos.lat; item.lng=pos.lng; item.geoAddr=addr;
+  return true;
+}
+function mapItemsFor(t, destId, filter){
+  const dest=(t.destinations||[]).find(d=>d.id===destId) || (t.destinations||[])[0];
+  if(!dest) return [];
+  const out=[];
+  (dest.days||[]).forEach(day=>(day.events||[]).forEach(e=>{
+    if(!MAP_TYPES.includes(e.type) || e.status==='cancelled') return;
+    if(filter!=='all' && e.type!==filter) return;
+    out.push({kind:'event', item:e, day, dest});
+  }));
+  if(filter==='all' || filter==='hotel'){
+    (t.hotels||[]).forEach(b=>{
+      if(dest.startDate && dest.endDate && b.checkIn && b.checkOut){
+        if(b.checkOut<dest.startDate || b.checkIn>dest.endDate) return;
+      }
+      out.push({kind:'hotel', item:b, dest});
+    });
+  }
+  return out;
+}
+async function geocodeAllPending(t){
+  const dest=currentDest(); if(!dest) return false;
+  const items=mapItemsFor(t, dest.id, 'all');
+  let any=false;
+  for(const {item} of items){
+    if(!(item.address||'').trim()) continue;
+    const changed=await ensureGeocoded(item);
+    if(changed){ any=true; save(); if(UI.screen==='map') updateMapMarkers(false); }
+  }
+  return any;
+}
+let __leafletLoading=null;
+function loadLeaflet(){
+  if(window.L) return Promise.resolve();
+  if(__leafletLoading) return __leafletLoading;
+  __leafletLoading=new Promise((resolve,reject)=>{
+    const css=document.createElement('link');
+    css.rel='stylesheet';
+    css.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(css);
+    const srcs=['https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+                'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
+    const tryLoad=i=>{
+      if(i>=srcs.length){ reject(new Error('leaflet load failed')); return; }
+      const s=document.createElement('script');
+      s.src=srcs[i]; s.crossOrigin='anonymous';
+      s.onload=()=>resolve();
+      s.onerror=()=>tryLoad(i+1);
+      document.head.appendChild(s);
+    };
+    tryLoad(0);
+  });
+  return __leafletLoading;
+}
+function mapMarkerIcon(color, iconName){
+  return L.divIcon({className:'', html:`<div class="map-marker" style="background:${color}">${ic(iconName,15)}</div>`,
+    iconSize:[30,30], iconAnchor:[15,28], popupAnchor:[0,-26]});
+}
+function updateMapMarkers(fitBounds){
+  const map=window.__leafletMap; if(!map || !window.L) return;
+  const t=activeTrip(); const dest=currentDest(); if(!t||!dest) return;
+  if(window.__mapLayer) map.removeLayer(window.__mapLayer);
+  const layer=L.layerGroup();
+  const items=mapItemsFor(t, dest.id, UI.mapFilter);
+  const pts=[];
+  items.forEach(({kind,item,day})=>{
+    if(typeof item.lat!=='number' || typeof item.lng!=='number') return;
+    const ty=kind==='hotel'?{color:'#8250DF',icon:'hotel',label:'מלון'}:evType(item.type);
+    const name=esc(item.name||item.title||ty.label);
+    const m=L.marker([item.lat,item.lng], {icon:mapMarkerIcon(ty.color, ty.icon)});
+    m.bindPopup(`<b>${name}</b>${item.address?'<br><span style="opacity:.75;font-size:12px">'+esc(item.address)+'</span>':''}`);
+    m.on('click',()=>{ if(kind==='hotel') openHotelDetail(item.id); else mapOpenEv(dest.id, day.id, item.id); });
+    layer.addLayer(m);
+    pts.push([item.lat,item.lng]);
+  });
+  layer.addTo(map);
+  window.__mapLayer=layer;
+  if(fitBounds){
+    if(pts.length===1) map.setView(pts[0], 13);
+    else if(pts.length>1) map.fitBounds(pts, {padding:[30,30], maxZoom:15});
+    else map.setView([20,10], 2);
+  }
+  const note=document.getElementById('mapPendingNote');
+  if(note){
+    const pending=items.filter(({item})=>(item.address||'').trim() && typeof item.lat!=='number').length;
+    note.textContent=pending? 'מאתר מיקום ל-'+pending+' פריטים…' : '';
+  }
+}
+function initMapWidget(){
+  const container=document.getElementById('realMap'); if(!container) return;
+  loadLeaflet().then(()=>{
+    const c2=document.getElementById('realMap'); if(!c2) return;
+    window.__leafletMap=L.map(c2, {attributionControl:true, zoomControl:true}).setView([20,10], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
+    }).addTo(window.__leafletMap);
+    const t=activeTrip(); const dest=currentDest();
+    window.__mapViewKey=(dest&&dest.id)||'';
+    updateMapMarkers(true);
+    if(t) geocodeAllPending(t);
+  }).catch(e=>{
+    console.error('[map] load failed',e);
+    const c2=document.getElementById('realMap');
+    if(c2) c2.innerHTML=`<div class="empty" style="padding:30px 10px"><div class="e-ic">${ic('map',26)}</div><p>אין חיבור לרשת כרגע — המפה תיטען כשהחיבור יחזור</p></div>`;
+  });
+}
+Object.assign(window,{ensureGeocoded,geocodeAllPending,updateMapMarkers,initMapWidget,geocodeAddress,mapItemsFor});
+/* ==== END VOYAGE REAL MAP ==== */
+
 /* ==== VOYAGE CORE ==== */
 const COUNTRY_DB={
 JP:["יפן","Japan","🇯🇵"],US:["ארצות הברית","USA","🇺🇸"],FR:["צרפת","France","🇫🇷"],IT:["איטליה","Italy","🇮🇹"],
@@ -6027,7 +6185,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.6.3';
+const BUILD='4.7';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
