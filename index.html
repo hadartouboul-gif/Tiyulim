@@ -532,8 +532,8 @@ a.mini-link{
   display:flex; align-items:center; justify-content:center; color:var(--ink3); cursor:pointer;}
 
 /* map */
-.map-box{position:relative; border-radius:20px; overflow:hidden; border:1px solid var(--line);
-  height:300px; box-shadow:var(--sh-md); background:#E8EDF2;}
+.map-box{position:relative; border-radius:18px; overflow:hidden; border:1px solid var(--line);
+  height:230px; box-shadow:var(--sh-sm); background:#E8EDF2;}
 html[data-theme=dark] .map-box{background:#151A21;}
 .map-pin{position:absolute; transform:translate(50%,-100%); cursor:pointer; z-index:2; transition:transform .15s;}
 .map-pin:active{transform:translate(50%,-100%) scale(.9);}
@@ -580,7 +580,11 @@ html[data-theme=dark] .map-box{background:#151A21;}
 /* ==== VOYAGE PHASE 3 · POLISH ==== */
 #realMap.map-box{background:#E8EDF2;}
 #realMap .leaflet-container{font-family:inherit; background:#E8EDF2;}
-#realMap .leaflet-control-zoom a{color:#333; font-family:inherit;}
+#realMap .leaflet-control-zoom{border:none; box-shadow:var(--sh-sm);}
+#realMap .leaflet-control-zoom a{color:#333; font-family:inherit; width:32px; height:32px; line-height:32px;}
+.map-tap-hint{position:absolute; inset:0; z-index:500; display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.16); color:#fff; font-size:12.5px; font-weight:700; text-align:center;
+  padding:0 20px; pointer-events:none; direction:rtl;}
 #realMap .leaflet-popup-content{font-family:inherit; direction:rtl; text-align:right;}
 .map-marker{width:30px; height:30px; border-radius:50% 50% 50% 4px; transform:rotate(45deg);
   display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px rgba(0,0,0,.3); border:2px solid #fff;}
@@ -2452,7 +2456,7 @@ function screenMore(){
       <div class="lr-body"><div class="lr-title">${i.title}</div><div class="lr-sub">${i.sub}</div></div>
       ${ic('chevL',18)}
     </div>`).join('')}</div>`;
-  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.7 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
+  html+=`<p class="mini-note" style="text-align:center;margin-top:22px">Voyage · גרסה 4.7.1 · מוכן לחיבור עתידי: מפות, סטטוס טיסות ו-AI</p>`;
   return html;
 }
 function backToMore(){
@@ -2695,7 +2699,7 @@ function screenSettings(){
   </div>
   <div class="section-label">אודות ופרטיות</div>
   <div class="card pad" style="font-size:12.5px;color:var(--ink2);line-height:1.75">
-    <b style="color:var(--ink)">Voyage · גרסה 4.7</b>
+    <b style="color:var(--ink)">Voyage · גרסה 4.7.1</b>
       <div style="margin-top:10px"><button class="btn btn-soft btn-sm" onclick="checkForUpdate(true)">בדיקת עדכון</button></div><br>
     הטיולים, המסמכים והתמונות שלך שמורים בחשבון האישי שלך בלבד. איש אינו רואה אותם — אלא אם הזמנת אותו במפורש לטיול ספציפי (באימייל או בקוד), בהרשאת צפייה או עריכה.
   </div>
@@ -5770,11 +5774,15 @@ function updateMapMarkers(fitBounds){
   });
   layer.addTo(map);
   window.__mapLayer=layer;
-  if(fitBounds){
+  /* בפעם הראשונה שיש בכלל נקודות על המפה — ממקדים אליהן, גם אם זה קרה באמצע איתור-מיקום ברקע
+     (fitBounds=false), כדי שהמקומות שהוזנו יופיעו בפועל ולא יישארו מחוץ לתצוגה */
+  const firstReveal = pts.length>0 && !window.__mapHadPins;
+  if(fitBounds || firstReveal){
     if(pts.length===1) map.setView(pts[0], 13);
     else if(pts.length>1) map.fitBounds(pts, {padding:[30,30], maxZoom:15});
     else map.setView([20,10], 2);
   }
+  if(pts.length>0) window.__mapHadPins=true;
   const note=document.getElementById('mapPendingNote');
   if(note){
     const pending=items.filter(({item})=>(item.address||'').trim() && typeof item.lat!=='number').length;
@@ -5785,10 +5793,28 @@ function initMapWidget(){
   const container=document.getElementById('realMap'); if(!container) return;
   loadLeaflet().then(()=>{
     const c2=document.getElementById('realMap'); if(!c2) return;
-    window.__leafletMap=L.map(c2, {attributionControl:true, zoomControl:true}).setView([20,10], 2);
+    window.__mapHadPins=false;
+    window.__leafletMap=L.map(c2, {
+      attributionControl:true, zoomControl:false,
+      dragging:false, touchZoom:false, scrollWheelZoom:false, doubleClickZoom:true, boxZoom:false
+    }).setView([20,10], 2);
+    L.control.zoom({position:'bottomright', zoomInTitle:'התקרבות', zoomOutTitle:'התרחקות'}).addTo(window.__leafletMap);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
+      maxZoom:19, attribution:'&copy; OpenStreetMap'
     }).addTo(window.__leafletMap);
+    /* הקשה ראשונה "מפעילה" גרירה/פינץ' — כדי שגלילת הדף לא תיחטף למפה בטעות */
+    const hint=document.createElement('div');
+    hint.className='map-tap-hint';
+    hint.textContent='הקישו כדי להזיז ולהתקרב במפה';
+    c2.appendChild(hint);
+    const activate=()=>{
+      window.__leafletMap.dragging.enable();
+      window.__leafletMap.touchZoom.enable();
+      window.__leafletMap.scrollWheelZoom.enable();
+      hint.remove();
+    };
+    c2.addEventListener('click', activate, {once:true});
+    c2.addEventListener('touchstart', activate, {once:true, passive:true});
     const t=activeTrip(); const dest=currentDest();
     window.__mapViewKey=(dest&&dest.id)||'';
     updateMapMarkers(true);
@@ -6185,7 +6211,7 @@ const Undo={
     }
   },{passive:true});
 })();
-const BUILD='4.7';
+const BUILD='4.7.1';
 function buildNewer(a,b){
   const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
   for(let i=0;i<3;i++){ const x=pa[i]||0, y=pb[i]||0; if(x!==y) return x>y; }
